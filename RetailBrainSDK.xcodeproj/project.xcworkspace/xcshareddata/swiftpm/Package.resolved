@@ -1,0 +1,15 @@
+{
+  "originHash" : "8b7ff48c3d860137d8c93a9e97d08d4da47709abe9390c47b96a9ee64394cca1",
+  "pins" : [
+    {
+      "identity" : "ios",
+      "kind" : "remoteSourceControl",
+      "location" : "https://github.com/MappedIn/ios.git",
+      "state" : {
+        "revision" : "a8ee8de8ed0cdfd2e9f0b2394cf277985b182eb1",
+        "version" : "6.4.0"
+      }
+    }
+  ],
+  "version" : 3
+}

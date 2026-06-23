@@ -6,6 +6,10 @@
 	objectVersion = 77;
 	objects = {
 
+/* Begin PBXBuildFile section */
+		2CACF32E2FE942F000E7A647 /* Mappedin in Frameworks */ = {isa = PBXBuildFile; productRef = 2CACF32D2FE942F000E7A647 /* Mappedin */; };
+/* End PBXBuildFile section */
+
 /* Begin PBXFileReference section */
 		2CACF31A2FE9421100E7A647 /* RetailBrainSDK.framework */ = {isa = PBXFileReference; explicitFileType = wrapper.framework; includeInIndex = 0; path = RetailBrainSDK.framework; sourceTree = BUILT_PRODUCTS_DIR; };
 /* End PBXFileReference section */
@@ -23,6 +27,7 @@
 			isa = PBXFrameworksBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
+				2CACF32E2FE942F000E7A647 /* Mappedin in Frameworks */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -76,6 +81,7 @@
 			);
 			name = RetailBrainSDK;
 			packageProductDependencies = (
+				2CACF32D2FE942F000E7A647 /* Mappedin */,
 			);
 			productName = RetailBrainSDK;
 			productReference = 2CACF31A2FE9421100E7A647 /* RetailBrainSDK.framework */;
@@ -105,6 +111,9 @@
 			);
 			mainGroup = 2CACF3102FE9421100E7A647;
 			minimizedProjectReferenceProxies = 1;
+			packageReferences = (
+				2CACF32C2FE942F000E7A647 /* XCRemoteSwiftPackageReference "ios" */,
+			);
 			preferredProjectObjectVersion = 77;
 			productRefGroup = 2CACF31B2FE9421100E7A647 /* Products */;
 			projectDirPath = "";
@@ -370,6 +379,25 @@
 			defaultConfigurationName = Release;
 		};
 /* End XCConfigurationList section */
+
+/* Begin XCRemoteSwiftPackageReference section */
+		2CACF32C2FE942F000E7A647 /* XCRemoteSwiftPackageReference "ios" */ = {
+			isa = XCRemoteSwiftPackageReference;
+			repositoryURL = "https://github.com/MappedIn/ios.git";
+			requirement = {
+				kind = upToNextMajorVersion;
+				minimumVersion = 6.4.0;
+			};
+		};
+/* End XCRemoteSwiftPackageReference section */
+
+/* Begin XCSwiftPackageProductDependency section */
+		2CACF32D2FE942F000E7A647 /* Mappedin */ = {
+			isa = XCSwiftPackageProductDependency;
+			package = 2CACF32C2FE942F000E7A647 /* XCRemoteSwiftPackageReference "ios" */;
+			productName = Mappedin;
+		};
+/* End XCSwiftPackageProductDependency section */
 	};
 	rootObject = 2CACF3112FE9421100E7A647 /* Project object */;
 }
