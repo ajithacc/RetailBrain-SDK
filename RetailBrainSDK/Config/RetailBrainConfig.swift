@@ -6,6 +6,7 @@
 //
 
 import Foundation
+
 public struct RetailBrainConfig {
     
     public let apiKey: String
