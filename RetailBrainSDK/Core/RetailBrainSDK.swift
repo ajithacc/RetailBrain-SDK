@@ -23,5 +23,6 @@ public final class RetailBrainManager {
         self.config = config
         print("SDK Initialized")
         print("Map ID: \(config.mapId)")
+        print("Live update")
     }
 }

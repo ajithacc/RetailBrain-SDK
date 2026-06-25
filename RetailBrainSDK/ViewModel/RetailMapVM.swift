@@ -8,14 +8,35 @@
 import Foundation
 import Mappedin
 import SwiftUI
-internal import Combine
+import Combine
 
 final class RetailMapViewModel: ObservableObject {
 
     @Published var mapView = MapView()
     @Published var isLoading = true
+    @Published var selectedStore: StoreDetails?
+    
+    // Kept for backward compatibility
+    @Published var availableStores: [StoreItem] = []
+    @Published var selectedStores: Set<String> = []
+    @Published var itemsModel: [StoreItem] = []
+    
+    private lazy var navigationManager = NavigationManager(mapView: mapView) { [weak self] storeDetails in
+        DispatchQueue.main.async {
+            self?.selectedStore = storeDetails
+        }
+    }
+
+    private var onMapLoaded: (() -> Void)?
+    private var hasStartedLoading = false
+
+    init(onMapLoaded: (() -> Void)? = nil) {
+        self.onMapLoaded = onMapLoaded
+    }
 
     func loadMap() {
+        guard !hasStartedLoading else { return }
+        hasStartedLoading = true
 
         guard let config = RetailBrainManager.shared.config else {
             print("RetailBrain Config Missing")
@@ -40,7 +61,10 @@ final class RetailMapViewModel: ObservableObject {
                 ) { result in
 
                     print("Map Loaded Successfully")
-                    self?.isLoading = false
+                    DispatchQueue.main.async {
+                        self?.onMapLoaded?()
+                        self?.isLoading = false
+                    }
                 }
 
             case .failure(let error):
@@ -50,6 +74,18 @@ final class RetailMapViewModel: ObservableObject {
                 self?.isLoading = false
             }
         }
+    }
+    
+    public func routeToItems(_ itemNames: [String]) {
+        guard !itemNames.isEmpty else {
+            print("No items provided for routing")
+            return
+        }
+        print("Starting route to stores: \(itemNames.joined(separator: ", "))")
+        navigationManager.drawNearestItemRoute(
+            fromLocationName: "Office",
+            destinationNames: itemNames
+        )
     }
 
     deinit {

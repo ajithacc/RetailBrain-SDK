@@ -12,22 +12,21 @@ import UIKit
 
 class MapViewContainer: UIView {
     let mapView: MapView
-    
+
     init(mapView: MapView) {
         self.mapView = mapView
         super.init(frame: .zero)
         backgroundColor = .clear
         setupMapView()
     }
-    
+
     required init?(coder: NSCoder) {
         fatalError("init(coder:) has not been implemented")
     }
-    
+
     private func setupMapView() {
-        // Try to extract UIView from MapView using reflection
         let mirror = Mirror(reflecting: mapView)
-        
+
         for child in mirror.children {
             if let uiView = child.value as? UIView {
                 addSubview(uiView)
@@ -36,41 +35,60 @@ class MapViewContainer: UIView {
                 return
             }
         }
-        
+
         print("Warning: Unable to extract UIView from MapView")
     }
 }
 
 struct MapViewRepresentable: UIViewRepresentable {
     let mapView: MapView
-    
+
     func makeUIView(context: Context) -> MapViewContainer {
-        return MapViewContainer(mapView: mapView)
+        MapViewContainer(mapView: mapView)
     }
-    
-    func updateUIView(_ uiView: MapViewContainer, context: Context) {
-        // Update logic if necessary
-    }
+
+    func updateUIView(_ uiView: MapViewContainer, context: Context) {}
 }
 
 public struct RetailMapView: View {
+    @StateObject private var viewModel: RetailMapViewModel
+    private let routingController: MapRoutingController
 
-    @StateObject private var viewModel = RetailMapViewModel()
-
-    public init() {}
+    public init(
+        routingController: MapRoutingController = MapRoutingController(),
+        onMapLoaded: (() -> Void)? = nil
+    ) {
+        self.routingController = routingController
+        _viewModel = StateObject(
+            wrappedValue: RetailMapViewModel(onMapLoaded: {
+                routingController.markMapReady()
+                onMapLoaded?()
+            })
+        )
+    }
 
     public var body: some View {
-
         ZStack {
-
             MapViewRepresentable(mapView: viewModel.mapView)
+                .ignoresSafeArea()
 
             if viewModel.isLoading {
-                ProgressView()
+                VStack {
+                    ProgressView()
+                        .progressViewStyle(CircularProgressViewStyle())
+                        .scaleEffect(1.5)
+                    Text("Loading Map...")
+                        .font(.headline)
+                        .foregroundColor(.gray)
+                }
+                .frame(maxWidth: .infinity, maxHeight: .infinity)
+                .background(Color.black.opacity(0.3))
             }
         }
         .onAppear {
+            routingController.attach(viewModel: viewModel)
             viewModel.loadMap()
         }
+        .environmentObject(viewModel)
     }
 }
