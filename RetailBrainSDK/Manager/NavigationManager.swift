@@ -16,7 +16,7 @@ public typealias StoreSelectCallback = (StoreDetails?) -> Void
 private struct RouteDestination {
     let id: String
     let name: String
-    let target: NavigationTarget
+    let targets: [NavigationTarget]
 }
 
 private struct RouteLeg {
@@ -72,9 +72,11 @@ public class NavigationManager {
             guard let self else { return }
 
             if case .success(let locations) = locationsResult, !locations.isEmpty {
-                let destinations = locations.map {
-                    RouteDestination(id: $0.id, name: $0.name, target: .enterpriseLocation($0))
-                }
+                let destinations = self.groupedDestinations(
+                    locations.map {
+                        RouteDestination(id: $0.id, name: $0.name, targets: [.enterpriseLocation($0)])
+                    }
+                )
                 self.drawNearestRoute(
                     fromLocationName: entranceLocationName,
                     destinationNames: destinationNames,
@@ -100,15 +102,46 @@ public class NavigationManager {
 
             switch spacesResult {
             case .success(let spaces):
-                let destinations = spaces.map {
-                    RouteDestination(id: $0.id, name: $0.name, target: .space($0))
+                var candidates = spaces.map {
+                    RouteDestination(id: $0.id, name: $0.name, targets: [.space($0)])
                 }
-                self.drawNearestRoute(
-                    fromLocationName: entranceLocationName,
-                    destinationNames: destinationNames,
-                    allDestinations: destinations,
-                    dataSourceName: "spaces"
-                )
+
+                self.mapView.mapData.getByType(.mapObject) { [weak self] (objectsResult: Result<[MapObject], Error>) in
+                    guard let self else { return }
+
+                    if case .success(let objects) = objectsResult {
+                        candidates.append(contentsOf: objects.map {
+                            RouteDestination(id: $0.id, name: $0.name, targets: [.mapObject($0)])
+                        })
+                    }
+
+                    self.mapView.mapData.getByType(.door) { [weak self] (doorsResult: Result<[Door], Error>) in
+                        guard let self else { return }
+
+                        if case .success(let doors) = doorsResult {
+                            candidates.append(contentsOf: doors.map {
+                                RouteDestination(id: $0.id, name: $0.name, targets: [.door($0)])
+                            })
+                        }
+
+                        self.mapView.mapData.getByType(.pointOfInterest) { [weak self] (poisResult: Result<[PointOfInterest], Error>) in
+                            guard let self else { return }
+
+                            if case .success(let pois) = poisResult {
+                                candidates.append(contentsOf: pois.map {
+                                    RouteDestination(id: $0.id, name: $0.name, targets: [.coordinate($0.coordinate)])
+                                })
+                            }
+
+                            self.drawNearestRoute(
+                                fromLocationName: entranceLocationName,
+                                destinationNames: destinationNames,
+                                allDestinations: self.groupedDestinations(candidates),
+                                dataSourceName: "spaces, map objects, doors, and points of interest"
+                            )
+                        }
+                    }
+                }
             case .failure(let error):
                 print("getByType space error: \(error)")
             }
@@ -135,8 +168,16 @@ public class NavigationManager {
             print("Could not find entrance location: \(entranceLocationName). Using \(entranceLocation.name) as route origin.")
         }
 
-        let destinations = destinationNames.compactMap { name in
-            findDestination(named: name, in: allDestinations)
+        var destinations: [RouteDestination] = []
+        var missingNames: [String] = []
+
+        for name in destinationNames {
+            if let destination = findDestination(named: name, in: allDestinations),
+               !destinations.contains(where: { $0.id == destination.id }) {
+                destinations.append(destination)
+            } else {
+                missingNames.append(name)
+            }
         }
 
         guard !destinations.isEmpty else {
@@ -145,14 +186,12 @@ public class NavigationManager {
             return
         }
 
-        let foundNames = Set(destinations.map { $0.name.lowercased() })
-        let missingNames = destinationNames.filter { !foundNames.contains($0.lowercased()) }
         if !missingNames.isEmpty {
             print("Skipping route destinations not found in \(dataSourceName): \(missingNames.joined(separator: ", "))")
         }
 
         buildNearestRoute(
-            from: entranceLocation.target,
+            from: entranceLocation.targets,
             remainingDestinations: destinations,
             selectedLegs: []
         ) { [weak self] legs in
@@ -161,13 +200,45 @@ public class NavigationManager {
     }
 
     private func findDestination(named name: String, in destinations: [RouteDestination]) -> RouteDestination? {
-        let normalizedName = name.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+        let aliases = name
+            .split(separator: "|")
+            .map { normalizedRouteName(String($0)) }
+            .filter { !$0.isEmpty }
 
-        return destinations.first { destination in
-            destination.name.trimmingCharacters(in: .whitespacesAndNewlines).lowercased() == normalizedName
-        } ?? destinations.first { destination in
-            destination.name.lowercased().contains(normalizedName)
+        for alias in aliases {
+            if let exactMatch = destinations.first(where: { normalizedRouteName($0.name) == alias }) {
+                return exactMatch
+            }
         }
+
+        for alias in aliases {
+            if let partialMatch = destinations.first(where: { destination in
+                let destinationName = normalizedRouteName(destination.name)
+                return destinationName.contains(alias) || alias.contains(destinationName)
+            }) {
+                return partialMatch
+            }
+        }
+
+        return nil
+    }
+
+    private func groupedDestinations(_ destinations: [RouteDestination]) -> [RouteDestination] {
+        let grouped = Dictionary(grouping: destinations) { normalizedRouteName($0.name) }
+
+        return grouped.values.compactMap { matches in
+            guard let first = matches.first else { return nil }
+            return RouteDestination(
+                id: matches.map { $0.id }.joined(separator: ","),
+                name: first.name,
+                targets: matches.flatMap { $0.targets }
+            )
+        }
+    }
+
+    private func normalizedRouteName(_ name: String) -> String {
+        name.trimmingCharacters(in: .whitespacesAndNewlines)
+            .lowercased()
     }
     
     /// Draw multi-stop route through specified locations
@@ -222,7 +293,7 @@ public class NavigationManager {
     // MARK: - Private Route Drawing Methods
     
     private func buildNearestRoute(
-        from currentTarget: NavigationTarget,
+        from currentTargets: [NavigationTarget],
         remainingDestinations: [RouteDestination],
         selectedLegs: [RouteLeg],
         completion: @escaping ([RouteLeg]) -> Void
@@ -240,8 +311,8 @@ public class NavigationManager {
         
         for destination in remainingDestinations {
             mapView.mapData.getDirections(
-                from: currentTarget,
-                to: destination.target
+                from: currentTargets,
+                to: destination.targets
             ) { [weak self] result in
                 guard let self else { return }
                 
@@ -274,7 +345,7 @@ public class NavigationManager {
                 
                 let remaining = remainingDestinations.filter { $0.name != nearestLeg.destination.name }
                 self.buildNearestRoute(
-                    from: nearestLeg.destination.target,
+                    from: nearestLeg.destination.targets,
                     remainingDestinations: remaining,
                     selectedLegs: selectedLegs + [nearestLeg],
                     completion: completion
