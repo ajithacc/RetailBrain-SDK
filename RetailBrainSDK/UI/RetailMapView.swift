@@ -56,13 +56,15 @@ public struct RetailMapView: View {
 
     public init(
         routingController: MapRoutingController = MapRoutingController(),
-        onMapLoaded: (() -> Void)? = nil
+        onMapLoaded: (() -> Void)? = nil,
+        onLaunch: (() -> Void)? = nil
     ) {
         self.routingController = routingController
         _viewModel = StateObject(
             wrappedValue: RetailMapViewModel(onMapLoaded: {
                 routingController.markMapReady()
                 onMapLoaded?()
+                onLaunch?()
             })
         )
     }
@@ -73,22 +75,22 @@ public struct RetailMapView: View {
                 .ignoresSafeArea()
 
             if viewModel.isLoading {
-                VStack {
+                VStack(spacing: 12) {
                     ProgressView()
                         .progressViewStyle(CircularProgressViewStyle())
                         .scaleEffect(1.5)
+
                     Text("Loading Map...")
                         .font(.headline)
                         .foregroundColor(.gray)
                 }
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
-                .background(Color.black.opacity(0.3))
+                .background(Color.black.opacity(0.25))
             }
         }
         .onAppear {
             routingController.attach(viewModel: viewModel)
             viewModel.loadMap()
         }
-        .environmentObject(viewModel)
     }
 }

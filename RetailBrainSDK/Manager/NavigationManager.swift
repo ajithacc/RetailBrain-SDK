@@ -334,7 +334,7 @@ public class NavigationManager {
                 pendingDirectionsCount -= 1
                 
                 guard pendingDirectionsCount == 0 else { return }
-                
+                // find the shortest distance by comparing all values
                 guard let nearestLeg = candidateLegs.min(by: { $0.distance < $1.distance }) else {
                     print("⚠ No valid legs found, completing with \(selectedLegs.count) legs")
                     completion(selectedLegs)

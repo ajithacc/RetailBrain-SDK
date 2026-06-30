@@ -8,37 +8,34 @@
 import Foundation
 import Combine
 
-/// Public bridge used by the host app to send routing commands to the SDK map.
+/// A coordinator that manages routing and communication between map view and app
+/// Note: Routing is primarily handled through RetailMapViewModel directly
 public final class MapRoutingController: ObservableObject {
-    @Published public private(set) var isMapReady = false
-
+    @Published var isMapReady = false
     private weak var viewModel: RetailMapViewModel?
-    private var pendingStoreNames: [String] = []
-
+    
     public init() {}
+    
+    /// Indicates that the map and viewmodel are ready for operations
+    func markMapReady() {
+        self.isMapReady = true
+    }
 
     func attach(viewModel: RetailMapViewModel) {
         self.viewModel = viewModel
-
-        if !pendingStoreNames.isEmpty {
-            routeToStores(pendingStoreNames)
-            pendingStoreNames.removeAll()
-        }
     }
-
-    func markMapReady() {
-        isMapReady = true
-    }
-
-    /// Routes from the SDK's fixed origin location to the selected store names.
+    
+    /// Route to specified store names
+    /// Note: This is a placeholder. Actual routing is handled through RetailMapView/RetailMapViewModel
     public func routeToStores(_ storeNames: [String]) {
-        guard !storeNames.isEmpty else { return }
-
-        guard let viewModel else {
-            pendingStoreNames = storeNames
-            return
-        }
-
-        viewModel.routeToItems(storeNames)
+        print("Route requested for stores: \(storeNames.joined(separator: ", "))")
+        viewModel?.routeToItems(storeNames)
+    }
+    
+    /// Clear all routes and selections
+    /// Note: This is a placeholder. Actual clearing is handled through RetailMapView/RetailMapViewModel
+    public func clearRoute() {
+        print("Clear route requested")
+        viewModel?.clearSelections()
     }
 }
