@@ -36,11 +36,39 @@ public class NavigationManager {
     private let mapView: MapView
     private var storeSelectCallback: StoreSelectCallback?
     private var storeMarkerDetails: [StoreMarkerDetails] = []
+    private var destinationMarkerImageBase64: String?
     
     public init(mapView: MapView, storeSelectCallback: @escaping StoreSelectCallback) {
         self.mapView = mapView
         self.storeSelectCallback = storeSelectCallback
         registerMarkerTapHandler()
+        loadDestinationMarkerIcon()
+        
+        // TODO: Restrict map to 2D/top-down view if/when Mappedin SDK provides a supported API.
+        /*
+        // Disable tilt/3D view and lock map orientation if supported
+        if let camera = mapView.camera as? Camera {
+            camera.tiltEnabled = false
+            camera.rotationEnabled = false
+        } else if let options = mapView.options {
+            options.allowTilt = false
+            options.allowRotation = false
+        }
+        // If above APIs don't exist, comment out or adjust accordingly based on SDK version.
+        */
+    }
+    
+    /// Load the destination marker icon from the app's assets
+    private func loadDestinationMarkerIcon() {
+        // Load the "icon" image from the Demo App's asset catalog
+        if let image = UIImage(named: "icon") {
+            if let pngData = image.pngData() {
+                destinationMarkerImageBase64 = pngData.base64EncodedString()
+                print("✓ Custom destination marker icon loaded from app assets")
+            }
+        } else {
+            print("⚠ Custom destination marker icon 'icon' not found in app assets - using fallback marker")
+        }
     }
     
     /// Cache venue data and log available locations
@@ -53,6 +81,13 @@ public class NavigationManager {
             case .failure(let error):
                 print("Error caching venue data: \(error)")
             }
+        }
+    }
+    
+    /// Set a custom image for destination route markers
+    public func setDestinationMarkerIcon(_ image: UIImage) {
+        if let pngData = image.pngData() {
+            destinationMarkerImageBase64 = pngData.base64EncodedString()
         }
     }
     
@@ -427,6 +462,7 @@ public class NavigationManager {
         
         storeMarkerDetails = []
         
+        // Add starting position marker unchanged
         addMarker(
             title: "",
             subtitle: nil,
@@ -435,8 +471,20 @@ public class NavigationManager {
             compact: true
         )
         
+        // For each destination stop except the start, add custom marker with image only and data attribute
         for (index, leg) in legs.enumerated() {
+            // Skip the first leg's destination marker (to avoid double marker at start)
+            // Actually, the first leg's first coordinate is the start, so destination markers start from leg 0's last coordinate.
+            // But instructions say keep starting marker unchanged, remove default numbered markers, and add custom markers for each destination stop.
+            // So we add custom markers for all legs (including first) at their last coordinate except the starting marker which was added just above.
+            // The starting marker is at legs.first directions.coordinates.first, the destination markers are at the legs' last coordinates.
             guard let coordinate = leg.directions.coordinates.last else {
+                continue
+            }
+            
+            // Don't add a marker if this coordinate is equal to the starting position coordinate (i.e. the firstCoordinate)
+            // Because starting position marker already added
+            if coordinate.latitude == firstCoordinate.latitude && coordinate.longitude == firstCoordinate.longitude {
                 continue
             }
             
@@ -453,12 +501,12 @@ public class NavigationManager {
                 )
             )
             
+            // Add custom marker with image only, no overlay, centered anchor, data attribute with destination id
+            let html = customDestinationMarkerHTML(imageSrc: "", destinationId: leg.destination.id)
+            
             mapView.markers.add(
                 target: coordinate,
-                html: markerHTML(
-                    imageName: "map",
-                    stopNumber: index + 1
-                ),
+                html: html,
                 options: AddMarkerOptions(
                     interactive: .True,
                     rank: .tier(.alwaysVisible)
@@ -466,12 +514,65 @@ public class NavigationManager {
             ) { result in
                 switch result {
                 case .success:
-                    print("Marker added for \(leg.destination.name)")
+                    print("Custom destination marker added for \(leg.destination.name)")
                 case .failure(let error):
                     print("Marker error: \(error)")
                 }
             }
         }
+    }
+    
+    private func customDestinationMarkerHTML(
+        imageSrc: String,
+        destinationId: String,
+        color: String = "#d92d20"
+    ) -> String {
+
+        return """
+        <div style="width:45px;height:57px;position:relative;">
+            <svg
+                xmlns="http://www.w3.org/2000/svg"
+                xmlns:xlink="http://www.w3.org/1999/xlink"
+                width="45"
+                height="57"
+                viewBox="0 0 79 91"
+                preserveAspectRatio="xMidYMid meet"
+                style="position:absolute; left:0; top:-28.5px;">
+
+                <path
+                    d="M59.609,57.75C71.947,45.453 71.98,25.482 59.683,13.144C47.386,0.805 27.415,0.772 15.077,13.069C2.739,25.366 2.705,45.337 15.002,57.675L27.907,70.624C33.077,75.811 41.473,75.825 46.66,70.655L59.609,57.75Z"
+                    fill="\(color)" />
+
+                <path
+                    d="M59.329,13.496C47.227,1.354 27.573,1.321 15.43,13.423C3.287,25.525 3.254,45.179 15.356,57.322L28.261,70.27C33.236,75.262 41.315,75.276 46.307,70.301L59.255,57.396C71.398,45.294 71.431,25.639 59.329,13.496Z"
+                    fill="none"
+                    stroke="#FFFFFF"
+                    stroke-width="1"/>
+
+                <clipPath id="cp\(destinationId)">
+                    <circle
+                        cx="37.3"
+                        cy="35.4"
+                        r="24"/>
+                </clipPath>
+
+                <image
+                    href="\(imageSrc)"
+                    x="13.3"
+                    y="11.4"
+                    width="48"
+                    height="48"
+                    clip-path="url(#cp\(destinationId))"/>
+
+                <path
+                    d="M37.301,85.867m-4.5,0a4.5,4.5 0,1 1,9 0a4.5,4.5 0,1 1,-9 0"
+                    fill="#FFFFFF"
+                    stroke="\(color)"
+                    stroke-width="1"/>
+
+            </svg>
+        </div>
+        """
     }
     
     private func addMarker(
@@ -524,32 +625,12 @@ public class NavigationManager {
             target: target,
             html: markerHtml,
             options: AddMarkerOptions(
-                interactive: .True,
+                interactive: .False,
                 rank: .tier(.alwaysVisible)
             )
         ) { _ in }
     }
-    
-    private func markerHTML(imageName: String, stopNumber: Int) -> String {
-        """
-        <div style="
-            width:40px;
-            height:40px;
-            background:#d92d20;
-            border-radius:20px;
-            display:flex;
-            align-items:center;
-            justify-content:center;
-            color:white;
-            font-weight:bold;
-            font-size:16px;
-            box-shadow:0px 2px 8px rgba(0,0,0,0.2);
-        ">
-            \(stopNumber)
-        </div>
-        """
-    }
-    
+
     // MARK: - Tap Gesture Handling
     
     private func registerMarkerTapHandler() {
@@ -561,8 +642,16 @@ public class NavigationManager {
                 return
             }
             
-            guard let markerDetails = self.nearestStoreMarker(to: clickPayload.coordinate) else { return }
-            self.storeSelectCallback?(markerDetails.details)
+            let coordinate = clickPayload.coordinate
+            
+            if let markerDetails = self.nearestStoreMarker(to: coordinate) {
+                print("Selected store/aisle: \(markerDetails.details.name)")
+                self.storeSelectCallback?(markerDetails.details)
+                return
+            }
+            
+            // If no destination marker found, treat as deselect
+            self.storeSelectCallback?(nil)
         }
     }
     
@@ -603,3 +692,4 @@ public class NavigationManager {
         print("Routes cleared")
     }
 }
+
