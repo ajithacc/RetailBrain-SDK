@@ -83,10 +83,7 @@ final class RetailMapViewModel: ObservableObject {
         }
 
         RetailBrainManager.shared.delegate?.routeCalculationStarted()
-        navigationManager.drawNearestItemRoute(
-            fromLocationName: "Office",
-            destinationNames: itemNames
-        )
+        navigationManager.prepareToDrawRoute(destinationNames: itemNames)
     }
 
     deinit {

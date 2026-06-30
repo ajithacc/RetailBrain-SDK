@@ -38,6 +38,10 @@ public class NavigationManager {
     private var storeMarkerDetails: [StoreMarkerDetails] = []
     private var destinationMarkerImageBase64: String?
     
+    private var pendingDestinationNames: [String]? = nil
+    private var awaitingUserStartLocation: Bool = false
+    private var selectedStartCoordinate: Coordinate?
+    
     public init(mapView: MapView, storeSelectCallback: @escaping StoreSelectCallback) {
         self.mapView = mapView
         self.storeSelectCallback = storeSelectCallback
@@ -91,238 +95,17 @@ public class NavigationManager {
         }
     }
     
-    // MARK: - Public Route Drawing Methods
-    
-    /// Draw route from entrance/office to nearest item, then to other items in sequence.
-    public func drawNearestItemRoute(
-        fromLocationName entranceLocationName: String,
-        destinationNames: [String]
-    ) {
-        guard !destinationNames.isEmpty else {
-            print("No destinations provided")
-            return
-        }
-
-        mapView.mapData.getByType(.enterpriseLocation) { [weak self] (locationsResult: Result<[EnterpriseLocation], Error>) in
-            guard let self else { return }
-
-            if case .success(let locations) = locationsResult, !locations.isEmpty {
-                let destinations = self.groupedDestinations(
-                    locations.map {
-                        RouteDestination(id: $0.id, name: $0.name, targets: [.enterpriseLocation($0)])
-                    }
-                )
-                self.drawNearestRoute(
-                    fromLocationName: entranceLocationName,
-                    destinationNames: destinationNames,
-                    allDestinations: destinations,
-                    dataSourceName: "enterprise locations"
-                )
-                return
-            }
-
-            self.drawNearestSpaceRoute(
-                fromLocationName: entranceLocationName,
-                destinationNames: destinationNames
-            )
-        }
-    }
-    
-    private func drawNearestSpaceRoute(
-        fromLocationName entranceLocationName: String,
-        destinationNames: [String]
-    ) {
-        mapView.mapData.getByType(.space) { [weak self] (spacesResult: Result<[Space], Error>) in
-            guard let self else { return }
-
-            switch spacesResult {
-            case .success(let spaces):
-                var candidates = spaces.map {
-                    RouteDestination(id: $0.id, name: $0.name, targets: [.space($0)])
-                }
-
-                self.mapView.mapData.getByType(.mapObject) { [weak self] (objectsResult: Result<[MapObject], Error>) in
-                    guard let self else { return }
-
-                    if case .success(let objects) = objectsResult {
-                        candidates.append(contentsOf: objects.map {
-                            RouteDestination(id: $0.id, name: $0.name, targets: [.mapObject($0)])
-                        })
-                    }
-
-                    self.mapView.mapData.getByType(.door) { [weak self] (doorsResult: Result<[Door], Error>) in
-                        guard let self else { return }
-
-                        if case .success(let doors) = doorsResult {
-                            candidates.append(contentsOf: doors.map {
-                                RouteDestination(id: $0.id, name: $0.name, targets: [.door($0)])
-                            })
-                        }
-
-                        self.mapView.mapData.getByType(.pointOfInterest) { [weak self] (poisResult: Result<[PointOfInterest], Error>) in
-                            guard let self else { return }
-
-                            if case .success(let pois) = poisResult {
-                                candidates.append(contentsOf: pois.map {
-                                    RouteDestination(id: $0.id, name: $0.name, targets: [.coordinate($0.coordinate)])
-                                })
-                            }
-
-                            self.drawNearestRoute(
-                                fromLocationName: entranceLocationName,
-                                destinationNames: destinationNames,
-                                allDestinations: self.groupedDestinations(candidates),
-                                dataSourceName: "spaces, map objects, doors, and points of interest"
-                            )
-                        }
-                    }
-                }
-            case .failure(let error):
-                print("getByType space error: \(error)")
-            }
-        }
-    }
-
-    private func drawNearestRoute(
-        fromLocationName entranceLocationName: String,
-        destinationNames: [String],
-        allDestinations: [RouteDestination],
-        dataSourceName: String
-    ) {
-        guard !allDestinations.isEmpty else {
-            print("No routeable \(dataSourceName) found")
-            return
-        }
-
-        let entranceLocation = findDestination(named: entranceLocationName, in: allDestinations)
-            ?? allDestinations.first
-
-        guard let entranceLocation else { return }
-
-        if entranceLocation.name.lowercased() != entranceLocationName.lowercased() {
-            print("Could not find entrance location: \(entranceLocationName). Using \(entranceLocation.name) as route origin.")
-        }
-
-        var destinations: [RouteDestination] = []
-        var missingNames: [String] = []
-
-        for name in destinationNames {
-            if let destination = findDestination(named: name, in: allDestinations),
-               !destinations.contains(where: { $0.id == destination.id }) {
-                destinations.append(destination)
-            } else {
-                missingNames.append(name)
-            }
-        }
-
-        guard !destinations.isEmpty else {
-            print("Could not find any route destinations: \(destinationNames.joined(separator: ", "))")
-            print("Available \(dataSourceName): \(allDestinations.map { $0.name }.joined(separator: ", "))")
-            return
-        }
-
-        if !missingNames.isEmpty {
-            print("Skipping route destinations not found in \(dataSourceName): \(missingNames.joined(separator: ", "))")
-        }
-
-        buildNearestRoute(
-            from: entranceLocation.targets,
-            remainingDestinations: destinations,
-            selectedLegs: []
-        ) { [weak self] legs in
-            self?.drawColoredRoute(legs: legs)
-        }
-    }
-
-    private func findDestination(named name: String, in destinations: [RouteDestination]) -> RouteDestination? {
-        let aliases = name
-            .split(separator: "|")
-            .map { normalizedRouteName(String($0)) }
-            .filter { !$0.isEmpty }
-
-        for alias in aliases {
-            if let exactMatch = destinations.first(where: { normalizedRouteName($0.name) == alias }) {
-                return exactMatch
-            }
-        }
-
-        for alias in aliases {
-            if let partialMatch = destinations.first(where: { destination in
-                let destinationName = normalizedRouteName(destination.name)
-                return destinationName.contains(alias) || alias.contains(destinationName)
-            }) {
-                return partialMatch
-            }
-        }
-
-        return nil
-    }
-
-    private func groupedDestinations(_ destinations: [RouteDestination]) -> [RouteDestination] {
-        let grouped = Dictionary(grouping: destinations) { normalizedRouteName($0.name) }
-
-        return grouped.values.compactMap { matches in
-            guard let first = matches.first else { return nil }
-            return RouteDestination(
-                id: matches.map { $0.id }.joined(separator: ","),
-                name: first.name,
-                targets: matches.flatMap { $0.targets }
-            )
-        }
-    }
-
-    private func normalizedRouteName(_ name: String) -> String {
-        name.trimmingCharacters(in: .whitespacesAndNewlines)
-            .lowercased()
-    }
-    
-    /// Draw multi-stop route through specified locations
-    public func drawMultiStopRoute(through locationNames: [String]) {
-        guard locationNames.count >= 2 else { return }
-        
-        mapView.mapData.getByType(.enterpriseLocation) { [weak self] (result: Result<[EnterpriseLocation], Error>) in
-            guard let self else { return }
-            
-            switch result {
-            case .success(let locations):
-                let routeLocations = locationNames.compactMap { name in
-                    locations.first { $0.name == name }
-                }
-                
-                guard routeLocations.count == locationNames.count else {
-                    let foundNames = Set(routeLocations.map { $0.name })
-                    let missingNames = locationNames.filter { !foundNames.contains($0) }
-                    print("Could not find route locations: \(missingNames.joined(separator: ", "))")
-                    return
-                }
-                
-                guard let origin = routeLocations.first else { return }
-                let destinations = routeLocations.dropFirst().map { location in
-                    MultiDestinationTarget.single(.enterpriseLocation(location))
-                }
-                
-                self.mapView.mapData.getDirectionsMultiDestination(
-                    from: .enterpriseLocation(origin),
-                    to: Array(destinations)
-                ) { [weak self] directionsResult in
-                    guard let self else { return }
-                    
-                    switch directionsResult {
-                    case .success(let directions):
-                        guard let directions, !directions.isEmpty else {
-                            print("No multi-stop directions found")
-                            return
-                        }
-                        self.draw(directionsList: directions)
-                    case .failure(let error):
-                        print("getDirectionsMultiDestination error: \(error)")
-                    }
-                }
-                
-            case .failure(let error):
-                print("getByType enterpriseLocation error: \(error)")
-            }
-        }
+    /// Call this to begin route selection: stores destinations and waits for user tap to select starting point
+    public func prepareToDrawRoute(destinationNames: [String]) {
+        guard !destinationNames.isEmpty else { return }
+        pendingDestinationNames = destinationNames
+        awaitingUserStartLocation = true
+        selectedStartCoordinate = nil
+        mapView.navigation.clear()
+        mapView.paths.removeAll()
+        mapView.markers.removeAll()
+        storeMarkerDetails = []
+        print("Tap on the map to select your starting location for the route.")
     }
     
     // MARK: - Private Route Drawing Methods
@@ -414,7 +197,10 @@ public class NavigationManager {
     }
     
     private func drawColoredRoute(legs: [RouteLeg]) {
-        guard !legs.isEmpty else { return }
+        guard !legs.isEmpty else {
+            restartStartSelectionAfterInvalidRoute(reason: "No route legs were returned")
+            return
+        }
         
         mapView.navigation.clear()
         mapView.paths.removeAll()
@@ -422,14 +208,15 @@ public class NavigationManager {
         
         print("drawColoredRoute: Drawing \(legs.count) legs")
         
-        // Draw paths for each leg with alternating colors
+        // Draw the first leg in solid blue and remaining legs in lighter blue.
         for (index, leg) in legs.enumerated() {
-            let color = index == 0 ? "#1871fb" : "#d92d20"
+            let color = index == 0 ? "#1871fb" : "#9cc8ff"
             let coordinateCount = leg.directions.coordinates.count
             
             guard coordinateCount > 0 else {
                 print("Warning: Empty coordinates for leg \(index)")
-                continue
+                restartStartSelectionAfterInvalidRoute(reason: "Selected start location produced an empty route leg")
+                return
             }
             
             print("Leg \(index): Destination=\(leg.destination.name), Coordinates=\(coordinateCount), Color=\(color)")
@@ -451,6 +238,19 @@ public class NavigationManager {
         
         addRouteMarkers(for: legs)
         focusCamera(on: legs)
+        pendingDestinationNames = nil
+    }
+
+    private func restartStartSelectionAfterInvalidRoute(reason: String) {
+        guard let destinations = pendingDestinationNames, !destinations.isEmpty else { return }
+
+        mapView.navigation.clear()
+        mapView.paths.removeAll()
+        mapView.markers.removeAll()
+        storeMarkerDetails = []
+        selectedStartCoordinate = nil
+        awaitingUserStartLocation = true
+        print("\(reason). Tap another location to select your starting location for the route.")
     }
     
     // MARK: - Marker Management
@@ -462,17 +262,17 @@ public class NavigationManager {
         
         storeMarkerDetails = []
         
-        // Add starting position marker unchanged
+        let startMarkerCoordinate = selectedStartCoordinate ?? firstCoordinate
         addMarker(
             title: "",
             subtitle: nil,
             color: "#1871fb",
-            target: firstCoordinate,
+            target: startMarkerCoordinate,
             compact: true
         )
         
         // For each destination stop except the start, add custom marker with image only and data attribute
-        for (index, leg) in legs.enumerated() {
+        for leg in legs {
             // Skip the first leg's destination marker (to avoid double marker at start)
             // Actually, the first leg's first coordinate is the start, so destination markers start from leg 0's last coordinate.
             // But instructions say keep starting marker unchanged, remove default numbered markers, and add custom markers for each destination stop.
@@ -482,9 +282,7 @@ public class NavigationManager {
                 continue
             }
             
-            // Don't add a marker if this coordinate is equal to the starting position coordinate (i.e. the firstCoordinate)
-            // Because starting position marker already added
-            if coordinate.latitude == firstCoordinate.latitude && coordinate.longitude == firstCoordinate.longitude {
+            if coordinate.latitude == startMarkerCoordinate.latitude && coordinate.longitude == startMarkerCoordinate.longitude {
                 continue
             }
             
@@ -637,6 +435,14 @@ public class NavigationManager {
         mapView.on(Events.click) { [weak self] clickPayload in
             guard let self, let clickPayload else { return }
             
+            if self.awaitingUserStartLocation, let destinations = self.pendingDestinationNames {
+                let coordinate = clickPayload.coordinate
+                self.awaitingUserStartLocation = false
+                // Call the new entry for the shortest-path algorithm using the tapped coordinate as the starting point.
+                self.drawRouteFromCoordinate(coordinate, destinationNames: destinations)
+                return
+            }
+            
             guard let markers = clickPayload.markers, !markers.isEmpty else {
                 self.storeSelectCallback?(nil)
                 return
@@ -670,8 +476,11 @@ public class NavigationManager {
     // MARK: - Camera and Utility Methods
     
     private func focusCamera(on legs: [RouteLeg]) {
-        let targets = legs.flatMap { leg in
+        var targets = legs.flatMap { leg in
             leg.directions.coordinates.map { FocusTarget.coordinate($0) }
+        }
+        if let selectedStartCoordinate {
+            targets.append(.coordinate(selectedStartCoordinate))
         }
         guard !targets.isEmpty else { return }
         mapView.camera.focusOn(targets: targets)
@@ -689,7 +498,234 @@ public class NavigationManager {
         mapView.paths.removeAll()
         mapView.markers.removeAll()
         storeMarkerDetails = []
+        pendingDestinationNames = nil
+        awaitingUserStartLocation = false
+        selectedStartCoordinate = nil
         print("Routes cleared")
+    }
+    
+    private func drawRouteFromCoordinate(_ coordinate: Coordinate, destinationNames: [String]) {
+        // We'll treat the coordinate as an ad-hoc starting point, and use the existing space/POI logic for destinations
+        self.mapView.mapData.getByType(.enterpriseLocation) { [weak self] (locationsResult: Result<[EnterpriseLocation], Error>) in
+            guard let self else { return }
+            if case .success(let locations) = locationsResult, !locations.isEmpty {
+                let destinations = self.groupedDestinations(
+                    locations.map {
+                        RouteDestination(id: $0.id, name: $0.name, targets: [.enterpriseLocation($0)])
+                    }
+                )
+                self.drawNearestRoute(
+                    fromCoordinate: coordinate,
+                    destinationNames: destinationNames,
+                    allDestinations: destinations,
+                    dataSourceName: "enterprise locations"
+                )
+                return
+            }
+            self.drawNearestSpaceRoute(fromCoordinate: coordinate, destinationNames: destinationNames)
+        }
+    }
+    
+    private func drawNearestRoute(
+        fromCoordinate coordinate: Coordinate,
+        destinationNames: [String],
+        allDestinations: [RouteDestination],
+        dataSourceName: String
+    ) {
+        guard !allDestinations.isEmpty else {
+            print("No routeable \(dataSourceName) found")
+            return
+        }
+
+        var destinations: [RouteDestination] = []
+        var missingNames: [String] = []
+
+        for name in destinationNames {
+            if let destination = findDestination(named: name, in: allDestinations),
+               !destinations.contains(where: { $0.id == destination.id }) {
+                destinations.append(destination)
+            } else {
+                missingNames.append(name)
+            }
+        }
+
+        guard !destinations.isEmpty else {
+            print("Could not find any route destinations: \(destinationNames.joined(separator: ", "))")
+            print("Available \(dataSourceName): \(allDestinations.map { $0.name }.joined(separator: ", "))")
+            return
+        }
+
+        if !missingNames.isEmpty {
+            print("Skipping route destinations not found in \(dataSourceName): \(missingNames.joined(separator: ", "))")
+        }
+
+        selectedStartCoordinate = coordinate
+        addMarker(
+            title: "",
+            subtitle: nil,
+            color: "#1871fb",
+            target: coordinate,
+            compact: true
+        )
+
+        buildRoute(
+            from: [.coordinate(coordinate)],
+            startCoordinate: coordinate,
+            remainingDestinations: destinations,
+            allowNearestSpaceFallback: true
+        )
+    }
+
+    private func buildRoute(
+        from originTargets: [NavigationTarget],
+        startCoordinate: Coordinate,
+        remainingDestinations destinations: [RouteDestination],
+        allowNearestSpaceFallback: Bool
+    ) {
+        buildNearestRoute(
+            from: originTargets,
+            remainingDestinations: destinations,
+            selectedLegs: []
+        ) { [weak self] legs in
+            guard let self else { return }
+
+            if legs.isEmpty, allowNearestSpaceFallback {
+                self.buildRouteFromNearestSpace(
+                    near: startCoordinate,
+                    remainingDestinations: destinations
+                )
+                return
+            }
+
+            self.drawColoredRoute(legs: legs)
+        }
+    }
+
+    private func buildRouteFromNearestSpace(
+        near coordinate: Coordinate,
+        remainingDestinations destinations: [RouteDestination]
+    ) {
+        mapView.mapData.query.nearest(origin: coordinate, include: [.space]) { [weak self] result in
+            guard let self else { return }
+
+            switch result {
+            case .success(let queryResults):
+                guard let nearestResult = queryResults?.first,
+                      case .space(let nearestSpace) = nearestResult.feature else {
+                    print("No routeable space found near selected start location")
+                    self.drawColoredRoute(legs: [])
+                    return
+                }
+
+                print("Using nearest routeable start space: \(nearestSpace.name) at \(nearestResult.distance)m")
+                self.buildRoute(
+                    from: [.space(nearestSpace)],
+                    startCoordinate: coordinate,
+                    remainingDestinations: destinations,
+                    allowNearestSpaceFallback: false
+                )
+            case .failure(let error):
+                print("Nearest routeable start lookup failed: \(error)")
+                self.drawColoredRoute(legs: [])
+            }
+        }
+    }
+
+    private func drawNearestSpaceRoute(
+        fromCoordinate coordinate: Coordinate,
+        destinationNames: [String]
+    ) {
+        mapView.mapData.getByType(.space) { [weak self] (spacesResult: Result<[Space], Error>) in
+            guard let self else { return }
+
+            switch spacesResult {
+            case .success(let spaces):
+                var candidates = spaces.map {
+                    RouteDestination(id: $0.id, name: $0.name, targets: [.space($0)])
+                }
+
+                self.mapView.mapData.getByType(.mapObject) { [weak self] (objectsResult: Result<[MapObject], Error>) in
+                    guard let self else { return }
+
+                    if case .success(let objects) = objectsResult {
+                        candidates.append(contentsOf: objects.map {
+                            RouteDestination(id: $0.id, name: $0.name, targets: [.mapObject($0)])
+                        })
+                    }
+
+                    self.mapView.mapData.getByType(.door) { [weak self] (doorsResult: Result<[Door], Error>) in
+                        guard let self else { return }
+
+                        if case .success(let doors) = doorsResult {
+                            candidates.append(contentsOf: doors.map {
+                                RouteDestination(id: $0.id, name: $0.name, targets: [.door($0)])
+                            })
+                        }
+
+                        self.mapView.mapData.getByType(.pointOfInterest) { [weak self] (poisResult: Result<[PointOfInterest], Error>) in
+                            guard let self else { return }
+
+                            if case .success(let pois) = poisResult {
+                                candidates.append(contentsOf: pois.map {
+                                    RouteDestination(id: $0.id, name: $0.name, targets: [.coordinate($0.coordinate)])
+                                })
+                            }
+
+                            self.drawNearestRoute(
+                                fromCoordinate: coordinate,
+                                destinationNames: destinationNames,
+                                allDestinations: self.groupedDestinations(candidates),
+                                dataSourceName: "spaces, map objects, doors, and points of interest"
+                            )
+                        }
+                    }
+                }
+            case .failure(let error):
+                print("getByType space error: \(error)")
+            }
+        }
+    }
+    
+    private func findDestination(named name: String, in destinations: [RouteDestination]) -> RouteDestination? {
+        let aliases = name
+            .split(separator: "|")
+            .map { normalizedRouteName(String($0)) }
+            .filter { !$0.isEmpty }
+
+        for alias in aliases {
+            if let exactMatch = destinations.first(where: { normalizedRouteName($0.name) == alias }) {
+                return exactMatch
+            }
+        }
+
+        for alias in aliases {
+            if let partialMatch = destinations.first(where: { destination in
+                let destinationName = normalizedRouteName(destination.name)
+                return destinationName.contains(alias) || alias.contains(destinationName)
+            }) {
+                return partialMatch
+            }
+        }
+
+        return nil
+    }
+
+    private func groupedDestinations(_ destinations: [RouteDestination]) -> [RouteDestination] {
+        let grouped = Dictionary(grouping: destinations) { normalizedRouteName($0.name) }
+
+        return grouped.values.compactMap { matches in
+            guard let first = matches.first else { return nil }
+            return RouteDestination(
+                id: matches.map { $0.id }.joined(separator: ","),
+                name: first.name,
+                targets: matches.flatMap { $0.targets }
+            )
+        }
+    }
+
+    private func normalizedRouteName(_ name: String) -> String {
+        name.trimmingCharacters(in: .whitespacesAndNewlines)
+            .lowercased()
     }
 }
 
