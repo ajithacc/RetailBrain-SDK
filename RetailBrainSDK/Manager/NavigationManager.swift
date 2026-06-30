@@ -41,25 +41,14 @@ public class NavigationManager {
     private var pendingDestinationNames: [String]? = nil
     private var awaitingUserStartLocation: Bool = false
     private var selectedStartCoordinate: Coordinate?
+    private var routeRequestID = 0
+    private let routeLegAnimationDelay: TimeInterval = 1.1
     
     public init(mapView: MapView, storeSelectCallback: @escaping StoreSelectCallback) {
         self.mapView = mapView
         self.storeSelectCallback = storeSelectCallback
         registerMarkerTapHandler()
         loadDestinationMarkerIcon()
-        
-        // TODO: Restrict map to 2D/top-down view if/when Mappedin SDK provides a supported API.
-        /*
-        // Disable tilt/3D view and lock map orientation if supported
-        if let camera = mapView.camera as? Camera {
-            camera.tiltEnabled = false
-            camera.rotationEnabled = false
-        } else if let options = mapView.options {
-            options.allowTilt = false
-            options.allowRotation = false
-        }
-        // If above APIs don't exist, comment out or adjust accordingly based on SDK version.
-        */
     }
     
     /// Load the destination marker icon from the app's assets
@@ -98,6 +87,7 @@ public class NavigationManager {
     /// Call this to begin route selection: stores destinations and waits for user tap to select starting point
     public func prepareToDrawRoute(destinationNames: [String]) {
         guard !destinationNames.isEmpty else { return }
+        routeRequestID += 1
         pendingDestinationNames = destinationNames
         awaitingUserStartLocation = true
         selectedStartCoordinate = nil
@@ -196,49 +186,67 @@ public class NavigationManager {
         ) { _ in }
     }
     
-    private func drawColoredRoute(legs: [RouteLeg]) {
+    private func drawColoredRoute(legs: [RouteLeg], requestID: Int) {
+        guard requestID == routeRequestID else { return }
         guard !legs.isEmpty else {
             restartStartSelectionAfterInvalidRoute(reason: "No route legs were returned")
             return
+        }
+
+        for (index, leg) in legs.enumerated() {
+            guard !leg.directions.coordinates.isEmpty else {
+                print("Warning: Empty coordinates for leg \(index)")
+                restartStartSelectionAfterInvalidRoute(reason: "Selected start location produced an empty route leg")
+                return
+            }
         }
         
         mapView.navigation.clear()
         mapView.paths.removeAll()
         mapView.markers.removeAll()
+        storeMarkerDetails = []
         
         print("drawColoredRoute: Drawing \(legs.count) legs")
-        
-        // Draw the first leg in solid blue and remaining legs in lighter blue.
-        for (index, leg) in legs.enumerated() {
-            let color = index == 0 ? "#1871fb" : "#9cc8ff"
-            let coordinateCount = leg.directions.coordinates.count
-            
-            guard coordinateCount > 0 else {
-                print("Warning: Empty coordinates for leg \(index)")
-                restartStartSelectionAfterInvalidRoute(reason: "Selected start location produced an empty route leg")
-                return
-            }
-            
-            print("Leg \(index): Destination=\(leg.destination.name), Coordinates=\(coordinateCount), Color=\(color)")
-            
-            let pathOptions = AddPathOptions(color: color)
-            
-            mapView.paths.add(
-                coordinates: leg.directions.coordinates,
-                options: pathOptions
-            ) { result in
-                switch result {
-                case .success:
-                    print("✓ Path added for leg \(index)")
-                case .failure(let error):
-                    print("✗ Error adding path for leg \(index): \(error)")
-                }
-            }
-        }
-        
         addRouteMarkers(for: legs)
         focusCamera(on: legs)
-        pendingDestinationNames = nil
+        animateRouteLegs(legs, currentIndex: 0, requestID: requestID)
+    }
+
+    private func animateRouteLegs(_ legs: [RouteLeg], currentIndex index: Int, requestID: Int) {
+        guard requestID == routeRequestID else { return }
+        guard index < legs.count else { return }
+
+        let leg = legs[index]
+        let color = index == 0 ? "#1871fb" : "#9cc8ff"
+        let coordinateCount = leg.directions.coordinates.count
+
+        print("Leg \(index): Destination=\(leg.destination.name), Coordinates=\(coordinateCount), Color=\(color)")
+
+        let pathOptions = AddPathOptions(
+            animateDrawing: true,
+            color: color
+        )
+
+        mapView.paths.add(
+            coordinates: leg.directions.coordinates,
+            options: pathOptions
+        ) { [weak self] result in
+            guard let self, requestID == self.routeRequestID else { return }
+
+            switch result {
+            case .success:
+                print("✓ Path added for leg \(index)")
+                let nextIndex = index + 1
+                guard nextIndex < legs.count else { return }
+                DispatchQueue.main.asyncAfter(deadline: .now() + self.routeLegAnimationDelay) { [weak self] in
+                    guard let self, requestID == self.routeRequestID else { return }
+                    self.animateRouteLegs(legs, currentIndex: nextIndex, requestID: requestID)
+                }
+            case .failure(let error):
+                print("✗ Error adding path for leg \(index): \(error)")
+                self.restartStartSelectionAfterInvalidRoute(reason: "Route drawing failed")
+            }
+        }
     }
 
     private func restartStartSelectionAfterInvalidRoute(reason: String) {
@@ -435,11 +443,10 @@ public class NavigationManager {
         mapView.on(Events.click) { [weak self] clickPayload in
             guard let self, let clickPayload else { return }
             
-            if self.awaitingUserStartLocation, let destinations = self.pendingDestinationNames {
+            if let destinations = self.pendingDestinationNames {
                 let coordinate = clickPayload.coordinate
                 self.awaitingUserStartLocation = false
-                // Call the new entry for the shortest-path algorithm using the tapped coordinate as the starting point.
-                self.drawRouteFromCoordinate(coordinate, destinationNames: destinations)
+                self.startRouteFromTappedCoordinate(coordinate, destinationNames: destinations)
                 return
             }
             
@@ -459,6 +466,23 @@ public class NavigationManager {
             // If no destination marker found, treat as deselect
             self.storeSelectCallback?(nil)
         }
+    }
+
+    private func startRouteFromTappedCoordinate(_ coordinate: Coordinate, destinationNames: [String]) {
+        routeRequestID += 1
+        selectedStartCoordinate = coordinate
+        mapView.navigation.clear()
+        mapView.paths.removeAll()
+        mapView.markers.removeAll()
+        storeMarkerDetails = []
+        addMarker(
+            title: "",
+            subtitle: nil,
+            color: "#1871fb",
+            target: coordinate,
+            compact: true
+        )
+        drawRouteFromCoordinate(coordinate, destinationNames: destinationNames, requestID: routeRequestID)
     }
     
     private func nearestStoreMarker(to coordinate: Coordinate) -> StoreMarkerDetails? {
@@ -494,6 +518,7 @@ public class NavigationManager {
     
     /// Clear all routes from the map
     public func clearRoutes() {
+        routeRequestID += 1
         mapView.navigation.clear()
         mapView.paths.removeAll()
         mapView.markers.removeAll()
@@ -504,10 +529,10 @@ public class NavigationManager {
         print("Routes cleared")
     }
     
-    private func drawRouteFromCoordinate(_ coordinate: Coordinate, destinationNames: [String]) {
+    private func drawRouteFromCoordinate(_ coordinate: Coordinate, destinationNames: [String], requestID: Int) {
         // We'll treat the coordinate as an ad-hoc starting point, and use the existing space/POI logic for destinations
         self.mapView.mapData.getByType(.enterpriseLocation) { [weak self] (locationsResult: Result<[EnterpriseLocation], Error>) in
-            guard let self else { return }
+            guard let self, requestID == self.routeRequestID else { return }
             if case .success(let locations) = locationsResult, !locations.isEmpty {
                 let destinations = self.groupedDestinations(
                     locations.map {
@@ -518,11 +543,12 @@ public class NavigationManager {
                     fromCoordinate: coordinate,
                     destinationNames: destinationNames,
                     allDestinations: destinations,
-                    dataSourceName: "enterprise locations"
+                    dataSourceName: "enterprise locations",
+                    requestID: requestID
                 )
                 return
             }
-            self.drawNearestSpaceRoute(fromCoordinate: coordinate, destinationNames: destinationNames)
+            self.drawNearestSpaceRoute(fromCoordinate: coordinate, destinationNames: destinationNames, requestID: requestID)
         }
     }
     
@@ -530,7 +556,8 @@ public class NavigationManager {
         fromCoordinate coordinate: Coordinate,
         destinationNames: [String],
         allDestinations: [RouteDestination],
-        dataSourceName: String
+        dataSourceName: String,
+        requestID: Int
     ) {
         guard !allDestinations.isEmpty else {
             print("No routeable \(dataSourceName) found")
@@ -560,19 +587,12 @@ public class NavigationManager {
         }
 
         selectedStartCoordinate = coordinate
-        addMarker(
-            title: "",
-            subtitle: nil,
-            color: "#1871fb",
-            target: coordinate,
-            compact: true
-        )
-
         buildRoute(
             from: [.coordinate(coordinate)],
             startCoordinate: coordinate,
             remainingDestinations: destinations,
-            allowNearestSpaceFallback: true
+            allowNearestSpaceFallback: true,
+            requestID: requestID
         )
     }
 
@@ -580,40 +600,43 @@ public class NavigationManager {
         from originTargets: [NavigationTarget],
         startCoordinate: Coordinate,
         remainingDestinations destinations: [RouteDestination],
-        allowNearestSpaceFallback: Bool
+        allowNearestSpaceFallback: Bool,
+        requestID: Int
     ) {
         buildNearestRoute(
             from: originTargets,
             remainingDestinations: destinations,
             selectedLegs: []
         ) { [weak self] legs in
-            guard let self else { return }
+            guard let self, requestID == self.routeRequestID else { return }
 
             if legs.isEmpty, allowNearestSpaceFallback {
                 self.buildRouteFromNearestSpace(
                     near: startCoordinate,
-                    remainingDestinations: destinations
+                    remainingDestinations: destinations,
+                    requestID: requestID
                 )
                 return
             }
 
-            self.drawColoredRoute(legs: legs)
+            self.drawColoredRoute(legs: legs, requestID: requestID)
         }
     }
 
     private func buildRouteFromNearestSpace(
         near coordinate: Coordinate,
-        remainingDestinations destinations: [RouteDestination]
+        remainingDestinations destinations: [RouteDestination],
+        requestID: Int
     ) {
         mapView.mapData.query.nearest(origin: coordinate, include: [.space]) { [weak self] result in
-            guard let self else { return }
+            guard let self, requestID == self.routeRequestID else { return }
 
             switch result {
             case .success(let queryResults):
                 guard let nearestResult = queryResults?.first,
                       case .space(let nearestSpace) = nearestResult.feature else {
                     print("No routeable space found near selected start location")
-                    self.drawColoredRoute(legs: [])
+                    self.drawColoredRoute(legs: [], requestID: requestID)
                     return
                 }
 
@@ -622,21 +645,23 @@ public class NavigationManager {
                     from: [.space(nearestSpace)],
                     startCoordinate: coordinate,
                     remainingDestinations: destinations,
-                    allowNearestSpaceFallback: false
+                    allowNearestSpaceFallback: false,
+                    requestID: requestID
                 )
             case .failure(let error):
                 print("Nearest routeable start lookup failed: \(error)")
-                self.drawColoredRoute(legs: [])
+                self.drawColoredRoute(legs: [], requestID: requestID)
             }
         }
     }
 
     private func drawNearestSpaceRoute(
         fromCoordinate coordinate: Coordinate,
-        destinationNames: [String]
+        destinationNames: [String],
+        requestID: Int
     ) {
         mapView.mapData.getByType(.space) { [weak self] (spacesResult: Result<[Space], Error>) in
-            guard let self else { return }
+            guard let self, requestID == self.routeRequestID else { return }
 
             switch spacesResult {
             case .success(let spaces):
@@ -645,7 +670,7 @@ public class NavigationManager {
                 }
 
                 self.mapView.mapData.getByType(.mapObject) { [weak self] (objectsResult: Result<[MapObject], Error>) in
-                    guard let self else { return }
+                    guard let self, requestID == self.routeRequestID else { return }
 
                     if case .success(let objects) = objectsResult {
                         candidates.append(contentsOf: objects.map {
@@ -654,7 +679,7 @@ public class NavigationManager {
                     }
 
                     self.mapView.mapData.getByType(.door) { [weak self] (doorsResult: Result<[Door], Error>) in
-                        guard let self else { return }
+                        guard let self, requestID == self.routeRequestID else { return }
 
                         if case .success(let doors) = doorsResult {
                             candidates.append(contentsOf: doors.map {
@@ -663,7 +688,7 @@ public class NavigationManager {
                         }
 
                         self.mapView.mapData.getByType(.pointOfInterest) { [weak self] (poisResult: Result<[PointOfInterest], Error>) in
-                            guard let self else { return }
+                            guard let self, requestID == self.routeRequestID else { return }
 
                             if case .success(let pois) = poisResult {
                                 candidates.append(contentsOf: pois.map {
@@ -675,7 +700,8 @@ public class NavigationManager {
                                 fromCoordinate: coordinate,
                                 destinationNames: destinationNames,
                                 allDestinations: self.groupedDestinations(candidates),
-                                dataSourceName: "spaces, map objects, doors, and points of interest"
+                                dataSourceName: "spaces, map objects, doors, and points of interest",
+                                requestID: requestID
                             )
                         }
                     }
