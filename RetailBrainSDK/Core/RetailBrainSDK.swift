@@ -71,7 +71,6 @@ public final class RetailBrainManager {
 
         self.config = config
         delegate?.sdkDidInitialize()
-        print("SDK Initialized")
         print("Map ID: \(config.mapId)")
         print("Live update")
     }

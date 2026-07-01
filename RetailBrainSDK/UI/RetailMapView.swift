@@ -35,8 +35,6 @@ class MapViewContainer: UIView {
                 return
             }
         }
-
-        print("Warning: Unable to extract UIView from MapView")
     }
 }
 
