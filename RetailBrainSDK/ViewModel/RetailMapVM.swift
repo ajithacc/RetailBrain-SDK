@@ -53,7 +53,6 @@ final class RetailMapViewModel: ObservableObject {
                         print("Map Loaded Successfully")
                         RetailBrainManager.shared.delegate?.mapDidLoad()
                         self.onMapLoaded?()
-                        self.navigationManager.cacheVenueData()
                         self.isLoading = false
                     case .failure(let error):
                         print("Map rendering failed")
