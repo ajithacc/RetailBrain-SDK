@@ -162,30 +162,6 @@ public class NavigationManager {
         }
     }
     
-//    private func draw(directions: Directions) {
-//        let pathOptions = AddPathOptions(interactive: true)
-//        let navigationOptions = NavigationOptions(pathOptions: pathOptions)
-//        
-//        mapView.navigation.clear()
-//        mapView.paths.removeAll()
-//        mapView.navigation.draw(
-//            directions: directions,
-//            options: navigationOptions
-//        ) { _ in }
-//    }
-//    
-//    private func draw(directionsList: [Directions]) {
-//        let pathOptions = AddPathOptions(interactive: true)
-//        let navigationOptions = NavigationOptions(pathOptions: pathOptions)
-//        
-//        mapView.navigation.clear()
-//        mapView.paths.removeAll()
-//        mapView.navigation.draw(
-//            directions: directionsList,
-//            options: navigationOptions
-//        ) { _ in }
-//    }
-    
     private func drawColoredRoute(legs: [RouteLeg], requestID: Int) {
         guard requestID == routeRequestID else { return }
         guard !legs.isEmpty else {
