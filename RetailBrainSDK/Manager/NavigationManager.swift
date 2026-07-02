@@ -11,18 +11,12 @@ import UIKit
 
 public typealias StoreSelectCallback = (StoreDetails?) -> Void
 
-// MARK: - Route Leg Model
+// MARK: - Data Models
 
 private struct RouteDestination {
     let id: String
     let name: String
     let targets: [NavigationTarget]
-}
-
-private struct RouteLeg {
-    let destination: RouteDestination
-    let directions: Directions
-    let distance: Double
 }
 
 private struct StoreMarkerDetails {
@@ -37,13 +31,11 @@ public class NavigationManager {
     private let mapView: MapView
     private var storeSelectCallback: StoreSelectCallback?
     private var storeMarkerDetails: [StoreMarkerDetails] = []
-    private var destinationMarkerImageBase64: String?
     
     private var pendingDestinationNames: [String]? = nil
     private var awaitingUserStartLocation: Bool = false
     private var selectedStartCoordinate: Coordinate?
     private var routeRequestID = 0
-    private let routeLegAnimationDelay: TimeInterval = 1.1
     
     public init(mapView: MapView, storeSelectCallback: @escaping StoreSelectCallback) {
         self.mapView = mapView
@@ -51,7 +43,7 @@ public class NavigationManager {
         registerMarkerTapHandler()
     }
     
-    // MARK: - Public routeMethod to prepare for drawing route with user interaction
+    // MARK: - Public API
     
     public func prepareToDrawRoute(destinationNames: [String]) {
         guard !destinationNames.isEmpty else { return }
@@ -65,7 +57,18 @@ public class NavigationManager {
         storeMarkerDetails = []
     }
     
-    // MARK: - Tap Gesture Handling in MapView
+    public func clearRoutes() {
+        routeRequestID += 1
+        mapView.navigation.clear()
+        mapView.paths.removeAll()
+        mapView.markers.removeAll()
+        storeMarkerDetails = []
+        pendingDestinationNames = nil
+        awaitingUserStartLocation = false
+        selectedStartCoordinate = nil
+    }
+    
+    // MARK: - Tap Gesture Handling
     
     private func registerMarkerTapHandler() {
         mapView.on(Events.click) { [weak self] clickPayload in
@@ -90,12 +93,11 @@ public class NavigationManager {
                 return
             }
             
-            // If no destination marker found, treat as deselect
             self.storeSelectCallback?(nil)
         }
     }
     
-    // MARK: - Intial Marker Added and Route Drawing
+    // MARK: - Route Initialization
     
     private func startRouteFromTappedCoordinate(_ coordinate: Coordinate, destinationNames: [String]) {
         routeRequestID += 1
@@ -113,6 +115,8 @@ public class NavigationManager {
         )
         drawNearestSpaceRoute(fromCoordinate: coordinate, destinationNames: destinationNames, requestID: routeRequestID)
     }
+    
+    // MARK: - Initial Marker Setup
     
     private func addMarkerForUserLoc(
         title: String,
@@ -137,6 +141,8 @@ public class NavigationManager {
             )
         ) { _ in }
     }
+    
+    // MARK: - Fetching Spaces, MapObjects, Doors, and POIs for Route Calculation
     
     private func drawNearestSpaceRoute(
         fromCoordinate coordinate: Coordinate,
@@ -178,22 +184,20 @@ public class NavigationManager {
                                     RouteDestination(id: $0.id, name: $0.name, targets: [.coordinate($0.coordinate)])
                                 })
                             }
-                            self.drawNearestRoute(
+                            self.initializeOptimalRouting(
                                 fromCoordinate: coordinate,
                                 destinationNames: destinationNames,
                                 allDestinations: self.groupedDestinations(candidates),
-                                dataSourceName: "spaces, map objects, doors, and points of interest",
                                 requestID: requestID
                             )
                         }
                     }
                 }
-            case .failure(let error):
-                print(error)
+            case .failure:
+                self.restartStartSelectionAfterInvalidRoute(reason: "Failed to load spaces")
             }
         }
     }
-    
     
     // MARK: - Destination Grouping and Lookup
     
@@ -210,13 +214,12 @@ public class NavigationManager {
         }
     }
     
-    // MARK: - Drawing Nearest Route and Handling Missing Destinations
+    // MARK: - Optimal Routing Initialization
     
-    private func drawNearestRoute(
+    private func initializeOptimalRouting(
         fromCoordinate coordinate: Coordinate,
         destinationNames: [String],
         allDestinations: [RouteDestination],
-        dataSourceName: String,
         requestID: Int
     ) {
         guard !allDestinations.isEmpty else {
@@ -224,14 +227,11 @@ public class NavigationManager {
         }
         
         var destinations: [RouteDestination] = []
-        var missingNames: [String] = []
         
         for name in destinationNames {
             if let destination = findDestination(named: name, in: allDestinations),
                !destinations.contains(where: { $0.id == destination.id }) {
                 destinations.append(destination)
-            } else {
-                missingNames.append(name)
             }
         }
         
@@ -239,20 +239,15 @@ public class NavigationManager {
             return
         }
         
-        if !missingNames.isEmpty {
-        }
-        
         selectedStartCoordinate = coordinate
-        buildRoute(
-            from: [.coordinate(coordinate)],
+        determineOptimalOrder(
             startCoordinate: coordinate,
-            remainingDestinations: destinations,
-            allowNearestSpaceFallback: true,
+            destinations: destinations,
             requestID: requestID
         )
     }
     
-    // MARK: - Finding the Destination by Name with Normalization and Partial Matching
+    // MARK: - Destination Lookup
     
     private func findDestination(named name: String, in destinations: [RouteDestination]) -> RouteDestination? {
         let aliases = name
@@ -278,49 +273,41 @@ public class NavigationManager {
         return nil
     }
     
-    // MARK: - Brdging functions to build route and handle nearest space fallback
+    // MARK: - Optimal Route Order (Greedy Nearest-Neighbor)
     
-    private func buildRoute(
-        from originTargets: [NavigationTarget],
+    private func determineOptimalOrder(
         startCoordinate: Coordinate,
-        remainingDestinations destinations: [RouteDestination],
-        allowNearestSpaceFallback: Bool,
+        destinations: [RouteDestination],
         requestID: Int
     ) {
-        buildNearestRoute(
-            from: originTargets,
+        buildOptimalOrder(
+            currentTargets: [.coordinate(startCoordinate)],
+            startCoordinate: startCoordinate,
             remainingDestinations: destinations,
-            selectedLegs: []
-        ) { [weak self] legs in
-            guard let self, requestID == self.routeRequestID else { return }
-            
-            if legs.isEmpty, allowNearestSpaceFallback {
-                self.buildRouteFromNearestSpace(
-                    near: startCoordinate,
-                    remainingDestinations: destinations,
-                    requestID: requestID
-                )
-                return
-            }
-            
-            self.drawColoredRoute(legs: legs, requestID: requestID)
-        }
+            orderedDestinations: [],
+            requestID: requestID
+        )
     }
     
-    // MARK: - Private Route Drawing Methods
+    // MARK: - Optimal Route Order (Greedy Nearest-Neighbor)
     
-    private func buildNearestRoute(
-        from currentTargets: [NavigationTarget],
+    private func buildOptimalOrder(
+        currentTargets: [NavigationTarget],
+        startCoordinate: Coordinate,
         remainingDestinations: [RouteDestination],
-        selectedLegs: [RouteLeg],
-        completion: @escaping ([RouteLeg]) -> Void
+        orderedDestinations: [RouteDestination],
+        requestID: Int
     ) {
         guard !remainingDestinations.isEmpty else {
-            completion(selectedLegs)
+            drawMultiDestinationRoute(
+                startCoordinate: startCoordinate,
+                destinations: orderedDestinations,
+                requestID: requestID
+            )
             return
         }
         
-        var candidateLegs: [RouteLeg] = []
+        var candidateDirections: [(destination: RouteDestination, directions: Directions, distance: Double)] = []
         var pendingDirectionsCount = remainingDestinations.count
         
         for destination in remainingDestinations {
@@ -328,128 +315,117 @@ public class NavigationManager {
                 from: currentTargets,
                 to: destination.targets
             ) { [weak self] result in
-                guard let self else { return }
+                guard let self, requestID == self.routeRequestID else { return }
                 
                 if case .success(let directions?) = result {
                     let distance = self.totalDistance(for: directions)
-                    candidateLegs.append(
-                        RouteLeg(
-                            destination: destination,
-                            directions: directions,
-                            distance: distance
-                        )
-                    )
-                } else if case .failure(let error) = result {
-                    print(error)
+                    candidateDirections.append((destination: destination, directions: directions, distance: distance))
                 }
                 
                 pendingDirectionsCount -= 1
                 
                 guard pendingDirectionsCount == 0 else { return }
-                guard let nearestLeg = candidateLegs.min(by: { $0.distance < $1.distance }) else {
-                    completion(selectedLegs)
+                guard let nearest = candidateDirections.min(by: { $0.distance < $1.distance }) else {
+                    self.drawMultiDestinationRoute(
+                        startCoordinate: startCoordinate,
+                        destinations: orderedDestinations,
+                        requestID: requestID
+                    )
                     return
                 }
                 
-                let remaining = remainingDestinations.filter { $0.name != nearestLeg.destination.name }
-                self.buildNearestRoute(
-                    from: nearestLeg.destination.targets,
+                let remaining = remainingDestinations.filter { $0.name != nearest.destination.name }
+                self.buildOptimalOrder(
+                    currentTargets: nearest.destination.targets,
+                    startCoordinate: startCoordinate,
                     remainingDestinations: remaining,
-                    selectedLegs: selectedLegs + [nearestLeg],
-                    completion: completion
-                )
-            }
-        }
-    }
-    
-    // MARK: - Function for finding nearest space and building route from it if no direct route is found from the tapped coordinate
-    
-    private func buildRouteFromNearestSpace(
-        near coordinate: Coordinate,
-        remainingDestinations destinations: [RouteDestination],
-        requestID: Int
-    ) {
-        mapView.mapData.query.nearest(origin: coordinate, include: [.space]) { [weak self] result in
-            guard let self, requestID == self.routeRequestID else { return }
-            
-            switch result {
-            case .success(let queryResults):
-                guard let nearestResult = queryResults?.first,
-                      case .space(let nearestSpace) = nearestResult.feature else {
-                    self.drawColoredRoute(legs: [], requestID: requestID)
-                    return
-                }
-                
-                self.buildRoute(
-                    from: [.space(nearestSpace)],
-                    startCoordinate: coordinate,
-                    remainingDestinations: destinations,
-                    allowNearestSpaceFallback: false,
+                    orderedDestinations: orderedDestinations + [nearest.destination],
                     requestID: requestID
                 )
-            case .failure(_):
-                self.drawColoredRoute(legs: [], requestID: requestID)
             }
         }
     }
     
-    // MARK: - Drawing the route with colored legs and adding markers for each destination
+    // MARK: - Multi-Destination Route Drawing
     
-    private func drawColoredRoute(legs: [RouteLeg], requestID: Int) {
+    private func drawMultiDestinationRoute(
+        startCoordinate: Coordinate,
+        destinations: [RouteDestination],
+        requestID: Int
+    ) {
         guard requestID == routeRequestID else { return }
-        guard !legs.isEmpty else {
-            restartStartSelectionAfterInvalidRoute(reason: "No route legs were returned")
+        guard !destinations.isEmpty else {
+            restartStartSelectionAfterInvalidRoute(reason: "No valid destinations to route")
             return
         }
         
-        for (_, leg) in legs.enumerated() {
-            guard !leg.directions.coordinates.isEmpty else {
-                restartStartSelectionAfterInvalidRoute(reason: "Selected start location produced an empty route leg")
-                return
+        let multiDestinationTargets = destinations.flatMap { destination in
+            destination.targets.map { MultiDestinationTarget.single($0) }
+        }
+        
+        mapView.mapData.getDirectionsMultiDestination(
+            from: .coordinate(startCoordinate),
+            to: multiDestinationTargets
+        ) { [weak self] result in
+            guard let self, requestID == self.routeRequestID else { return }
+            
+            switch result {
+            case .success(let allDirections):
+                guard let allDirections = allDirections, !allDirections.isEmpty else {
+                    self.restartStartSelectionAfterInvalidRoute(reason: "No directions returned from multi-destination query")
+                    return
+                }
+                
+                self.renderMultiDestinationRoute(
+                    allDirections: allDirections,
+                    destinations: destinations,
+                    startCoordinate: startCoordinate,
+                    requestID: requestID
+                )
+            case .failure(_):
+                self.restartStartSelectionAfterInvalidRoute(reason: "Multi-destination route failed")
             }
         }
+    }
+    
+    // MARK: - Multi-Destination Route Rendering
+    
+    private func renderMultiDestinationRoute(
+        allDirections: [Directions],
+        destinations: [RouteDestination],
+        startCoordinate: Coordinate,
+        requestID: Int
+    ) {
+        guard requestID == routeRequestID else { return }
         
         mapView.navigation.clear()
         mapView.paths.removeAll()
         mapView.markers.removeAll()
         storeMarkerDetails = []
         
-        addRouteMarkers(for: legs)
-        focusCamera(on: legs)
-        animateRouteLegs(legs, currentIndex: 0, requestID: requestID)
-    }
-    
-    // MARK: - Animating the route legs sequentially with a delay between each leg
-    
-    private func animateRouteLegs(_ legs: [RouteLeg], currentIndex index: Int, requestID: Int) {
-        guard requestID == routeRequestID else { return }
-        guard index < legs.count else { return }
+        addRouteMarkers(for: allDirections, destinations: destinations, startCoordinate: startCoordinate)
         
-        let leg = legs[index]
-        let color = index == 0 ? "#1871fb" : "#9cc8ff"
-        
-        let pathOptions = AddPathOptions(
-            animateDrawing: true,
-            color: color
+        let navigationOptions = NavigationOptions(
+            createMarkers: NavigationOptions.CreateMarkers.withDefaults(
+                connection: false,
+                departure: false,
+                destination: false
+            ),
+            pathOptions: AddPathOptions(
+                accentColor: "white",
+                color: "#4b90e2",
+                displayArrowsOnPath: true
+            )
         )
         
-        mapView.paths.add(
-            coordinates: leg.directions.coordinates,
-            options: pathOptions
-        ) { [weak self] result in
+        mapView.navigation.draw(directions: allDirections, options: navigationOptions) { [weak self] result in
             guard let self, requestID == self.routeRequestID else { return }
             
             switch result {
             case .success:
-                let nextIndex = index + 1
-                guard nextIndex < legs.count else { return }
-                DispatchQueue.main.asyncAfter(deadline: .now() + self.routeLegAnimationDelay) { [weak self] in
-                    guard let self, requestID == self.routeRequestID else { return }
-                    self.animateRouteLegs(legs, currentIndex: nextIndex, requestID: requestID)
-                }
-            case .failure(let error):
-                print(error)
-                self.restartStartSelectionAfterInvalidRoute(reason: "Route drawing failed")
+                self.focusCamera(on: destinations, startCoordinate: startCoordinate)
+            case .failure:
+                self.restartStartSelectionAfterInvalidRoute(reason: "Failed to draw route")
             }
         }
     }
@@ -468,63 +444,60 @@ public class NavigationManager {
         print(reason)
     }
     
-    // MARK: - Marker SetUp for each stops
+    // MARK: - Add Route Markers at Waypoints
     
-    private func addRouteMarkers(for legs: [RouteLeg]) {
-        guard let firstCoordinate = legs.first?.directions.coordinates.first else {
-            return
-        }
-        
+    private func addRouteMarkers(
+        for allDirections: [Directions],
+        destinations: [RouteDestination],
+        startCoordinate: Coordinate
+    ) {
         storeMarkerDetails = []
         
-        let startMarkerCoordinate = selectedStartCoordinate ?? firstCoordinate
         addMarkerForUserLoc(
             title: "",
             subtitle: nil,
             color: "#1871fb",
-            target: startMarkerCoordinate,
+            target: startCoordinate,
             compact: true
         )
-        for leg in legs {
+        
+        for (index, directions) in allDirections.enumerated() {
+            guard let lastCoordinate = directions.coordinates.last else { continue }
             
-            guard let coordinate = leg.directions.coordinates.last else {
+            if lastCoordinate.latitude == startCoordinate.latitude && lastCoordinate.longitude == startCoordinate.longitude {
                 continue
             }
-            if coordinate.latitude == startMarkerCoordinate.latitude && coordinate.longitude == startMarkerCoordinate.longitude {
-                continue
-            }
+            
+            guard index < destinations.count else { continue }
+            let destination = destinations[index]
+            
             storeMarkerDetails.append(
                 StoreMarkerDetails(
                     details: StoreDetails(
-                        name: leg.destination.name,
+                        name: destination.name,
                         imageName: "",
-                        locationName: leg.destination.name,
-                        spaceId: leg.destination.id,
-                        coordinates: (coordinate.latitude, coordinate.longitude)
+                        locationName: destination.name,
+                        spaceId: destination.id,
+                        coordinates: (lastCoordinate.latitude, lastCoordinate.longitude)
                     ),
-                    coordinate: coordinate
+                    coordinate: lastCoordinate
                 )
             )
             
-            let html = MarkerHTMLGenerator.customDestinationMarkerHTML(imageSrc: "", destinationId: leg.destination.id)
+            let html = MarkerHTMLGenerator.customDestinationMarkerHTML(imageSrc: "", destinationId: destination.id)
             
             mapView.markers.add(
-                target: coordinate,
+                target: lastCoordinate,
                 html: html,
                 options: AddMarkerOptions(
                     interactive: .True,
                     rank: .tier(.alwaysVisible)
                 )
-            ) { result in
-                switch result {
-                case .success:
-                    break
-                case .failure(let error):
-                    print(error)
-                }
-            }
+            ) { _ in }
         }
     }
+    
+    // MARK: - Nearest Store Marker
     
     private func nearestStoreMarker(to coordinate: Coordinate) -> StoreMarkerDetails? {
         storeMarkerDetails.min { first, second in
@@ -540,16 +513,31 @@ public class NavigationManager {
     
     // MARK: - Camera and Utility Methods
     
-    private func focusCamera(on legs: [RouteLeg]) {
-        var targets = legs.flatMap { leg in
-            leg.directions.coordinates.map { FocusTarget.coordinate($0) }
+    private func focusCamera(on destinations: [RouteDestination], startCoordinate: Coordinate) {
+        var targets: [FocusTarget] = [.coordinate(startCoordinate)]
+        
+        for destination in destinations {
+            for target in destination.targets {
+                switch target {
+                case .coordinate(let coord):
+                    targets.append(.coordinate(coord))
+                case .space(let space):
+                    targets.append(.space(space))
+                case .mapObject(let obj):
+                    targets.append(.mapObject(obj))
+                case .door:
+                    break
+                @unknown default:
+                    break
+                }
+            }
         }
-        if let selectedStartCoordinate {
-            targets.append(.coordinate(selectedStartCoordinate))
-        }
+        
         guard !targets.isEmpty else { return }
         mapView.camera.focusOn(targets: targets)
     }
+    
+    // MARK: - Route Distance Calculation
     
     private func totalDistance(for directions: Directions) -> Double {
         directions.instructions.reduce(0) { total, instruction in
@@ -557,20 +545,7 @@ public class NavigationManager {
         }
     }
     
-    //MARK: - Helper Methods
-    
-    public func clearRoutes() {
-        routeRequestID += 1
-        mapView.navigation.clear()
-        mapView.paths.removeAll()
-        mapView.markers.removeAll()
-        storeMarkerDetails = []
-        pendingDestinationNames = nil
-        awaitingUserStartLocation = false
-        selectedStartCoordinate = nil
-    }
-    
-    //MARK: - Helper Methods
+    // MARK: - Route Name Normalization
     
     private func normalizedRouteName(_ name: String) -> String {
         name.trimmingCharacters(in: .whitespacesAndNewlines)
