@@ -11,6 +11,13 @@ import UIKit
 
 public typealias StoreSelectCallback = (StoreDetails?) -> Void
 
+// MARK: - Camera Constants
+
+private let CAMERA_ZOOM: Double = 19.0
+private let CAMERA_PITCH: Double = 0.0
+private let DEFAULT_BEARING: Double = 0.0
+private let BEARING_OFFSET: Double = -33.0
+
 // MARK: - Data Models
 
 private struct RouteDestination {
@@ -405,6 +412,10 @@ public class NavigationManager {
         
         addRouteMarkers(for: allDirections, destinations: destinations, startCoordinate: startCoordinate)
         
+        if let firstLeg = allDirections.first {
+            positionCamera(from: startCoordinate, firstLeg: firstLeg)
+        }
+        
         let navigationOptions = NavigationOptions(
             createMarkers: NavigationOptions.CreateMarkers.withDefaults(
                 connection: false,
@@ -423,7 +434,7 @@ public class NavigationManager {
             
             switch result {
             case .success:
-                self.focusCamera(on: destinations, startCoordinate: startCoordinate)
+                break
             case .failure:
                 self.restartStartSelectionAfterInvalidRoute(reason: "Failed to draw route")
             }
@@ -513,28 +524,42 @@ public class NavigationManager {
     
     // MARK: - Camera and Utility Methods
     
-    private func focusCamera(on destinations: [RouteDestination], startCoordinate: Coordinate) {
-        var targets: [FocusTarget] = [.coordinate(startCoordinate)]
-        
-        for destination in destinations {
-            for target in destination.targets {
-                switch target {
-                case .coordinate(let coord):
-                    targets.append(.coordinate(coord))
-                case .space(let space):
-                    targets.append(.space(space))
-                case .mapObject(let obj):
-                    targets.append(.mapObject(obj))
-                case .door:
-                    break
-                @unknown default:
-                    break
-                }
-            }
+    private func positionCamera(from: Coordinate, firstLeg: Directions) {
+        guard let toCoordinate = firstLeg.coordinates.last else {
+            positionCameraDefault(from: from)
+            return
         }
         
-        guard !targets.isEmpty else { return }
-        mapView.camera.focusOn(targets: targets)
+        let bearing = calculateBearing(from: from, to: toCoordinate)
+        
+        let cameraTarget = CameraTarget(
+            bearing: bearing,
+            center: from,
+            pitch: CAMERA_PITCH,
+            zoomLevel: CAMERA_ZOOM
+        )
+        
+        mapView.camera.set(target: cameraTarget) { _ in }
+    }
+    
+    private func positionCameraDefault(from: Coordinate) {
+        let cameraTarget = CameraTarget(
+            bearing: DEFAULT_BEARING,
+            center: from,
+            pitch: CAMERA_PITCH,
+            zoomLevel: CAMERA_ZOOM
+        )
+        
+        mapView.camera.set(target: cameraTarget) { _ in }
+    }
+    
+    private func calculateBearing(from: Coordinate, to: Coordinate) -> Double {
+        let angleDegrees = (180.0 / .pi) * atan2(
+            to.longitude - from.longitude,
+            to.latitude - from.latitude
+        )
+        let bearing = (angleDegrees + BEARING_OFFSET).truncatingRemainder(dividingBy: 360.0)
+        return bearing >= 0 ? bearing : bearing + 360.0
     }
     
     // MARK: - Route Distance Calculation
