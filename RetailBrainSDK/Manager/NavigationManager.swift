@@ -15,6 +15,7 @@ public typealias StoreSelectCallback = (StoreDetails?) -> Void
 
 private let CAMERA_ZOOM: Double = 19.0
 private let CAMERA_PITCH: Double = 0.0
+private let MULTI_FLOOR_CAMERA_PITCH: Double = 45.0
 private let DEFAULT_BEARING: Double = 0.0
 private let BEARING_OFFSET: Double = -33.0
 
@@ -24,6 +25,7 @@ private struct RouteDestination {
     let id: String
     let name: String
     let targets: [NavigationTarget]
+    let floorIds: Set<String>
 }
 
 private struct StoreMarkerDetails {
@@ -44,6 +46,10 @@ public class NavigationManager {
     private var selectedStartCoordinate: Coordinate?
     private var routeRequestID = 0
     
+    private var availableFloors: [Floor] = []
+    private var currentActiveFloors: Set<String> = []
+    private var isMultiFloorRouteActive = false
+    
     public init(mapView: MapView, storeSelectCallback: @escaping StoreSelectCallback) {
         self.mapView = mapView
         self.storeSelectCallback = storeSelectCallback
@@ -58,6 +64,8 @@ public class NavigationManager {
         pendingDestinationNames = destinationNames
         awaitingUserStartLocation = true
         selectedStartCoordinate = nil
+        isMultiFloorRouteActive = false
+        currentActiveFloors = []
         mapView.navigation.clear()
         mapView.paths.removeAll()
         mapView.markers.removeAll()
@@ -73,6 +81,8 @@ public class NavigationManager {
         pendingDestinationNames = nil
         awaitingUserStartLocation = false
         selectedStartCoordinate = nil
+        isMultiFloorRouteActive = false
+        currentActiveFloors = []
     }
     
     // MARK: - Tap Gesture Handling
@@ -80,15 +90,27 @@ public class NavigationManager {
     private func registerMarkerTapHandler() {
         mapView.on(Events.click) { [weak self] clickPayload in
             guard let self, let clickPayload else { return }
+
+            let tappedMarkers = clickPayload.markers ?? []
             
-            if let destinations = self.pendingDestinationNames {
+            // Only treat a tap as route-start selection while explicitly waiting for start input.
+            if self.awaitingUserStartLocation,
+               let destinations = self.pendingDestinationNames {
                 let coordinate = clickPayload.coordinate
                 self.awaitingUserStartLocation = false
                 self.startRouteFromTappedCoordinate(coordinate, destinationNames: destinations)
                 return
             }
+
+            // During an active route, reroute only when tapping open map space.
+            // Marker taps (for example floor transition arrows) should keep current route flow.
+            if let destinations = self.pendingDestinationNames,
+               tappedMarkers.isEmpty {
+                self.startRouteFromTappedCoordinate(clickPayload.coordinate, destinationNames: destinations)
+                return
+            }
             
-            guard let markers = clickPayload.markers, !markers.isEmpty else {
+            guard !tappedMarkers.isEmpty else {
                 self.storeSelectCallback?(nil)
                 return
             }
@@ -149,6 +171,22 @@ public class NavigationManager {
         ) { _ in }
     }
     
+    // MARK: - Floor Loading for Multi-Floor Support
+    
+    private func loadFloors(requestID: Int, completion: @escaping () -> Void) {
+        mapView.mapData.getByType(.floor) { [weak self] (floorsResult: Result<[Floor], Error>) in
+            guard let self, requestID == self.routeRequestID else { return }
+            
+            if case .success(let floors) = floorsResult {
+                self.availableFloors = floors
+            } else {
+                self.availableFloors = []
+            }
+            
+            completion()
+        }
+    }
+    
     // MARK: - Fetching Spaces, MapObjects, Doors, and POIs for Route Calculation
     
     private func drawNearestSpaceRoute(
@@ -156,52 +194,85 @@ public class NavigationManager {
         destinationNames: [String],
         requestID: Int
     ) {
-        mapView.mapData.getByType(.space) { [weak self] (spacesResult: Result<[Space], Error>) in
+        loadFloors(requestID: requestID) { [weak self] in
             guard let self, requestID == self.routeRequestID else { return }
             
-            switch spacesResult {
-            case .success(let spaces):
-                var candidates = spaces.map {
-                    RouteDestination(id: $0.id, name: $0.name, targets: [.space($0)])
-                }
-                
-                self.mapView.mapData.getByType(.mapObject) { [weak self] (objectsResult: Result<[MapObject], Error>) in
-                    guard let self, requestID == self.routeRequestID else { return }
-                    
-                    if case .success(let objects) = objectsResult {
-                        candidates.append(contentsOf: objects.map {
-                            RouteDestination(id: $0.id, name: $0.name, targets: [.mapObject($0)])
-                        })
+            self.mapView.mapData.getByType(.space) { [weak self] (spacesResult: Result<[Space], Error>) in
+                guard let self, requestID == self.routeRequestID else { return }
+
+                switch spacesResult {
+                case .success(let spaces):
+                    var candidates = spaces.map {
+                        RouteDestination(
+                            id: $0.id,
+                            name: $0.name,
+                            targets: [.space($0)],
+                            floorIds: [$0.floor]
+                        )
                     }
-                    
-                    self.mapView.mapData.getByType(.door) { [weak self] (doorsResult: Result<[Door], Error>) in
+
+                    self.mapView.mapData.getByType(.mapObject) { [weak self] (objectsResult: Result<[MapObject], Error>) in
                         guard let self, requestID == self.routeRequestID else { return }
-                        
-                        if case .success(let doors) = doorsResult {
-                            candidates.append(contentsOf: doors.map {
-                                RouteDestination(id: $0.id, name: $0.name, targets: [.door($0)])
+
+                        if case .success(let objects) = objectsResult {
+                            candidates.append(contentsOf: objects.map {
+                                RouteDestination(
+                                    id: $0.id,
+                                    name: $0.name,
+                                    targets: [.mapObject($0)],
+                                    floorIds: [$0.floor]
+                                )
                             })
                         }
-                        
-                        self.mapView.mapData.getByType(.pointOfInterest) { [weak self] (poisResult: Result<[PointOfInterest], Error>) in
+
+                        self.mapView.mapData.getByType(.door) { [weak self] (doorsResult: Result<[Door], Error>) in
                             guard let self, requestID == self.routeRequestID else { return }
-                            
-                            if case .success(let pois) = poisResult {
-                                candidates.append(contentsOf: pois.map {
-                                    RouteDestination(id: $0.id, name: $0.name, targets: [.coordinate($0.coordinate)])
+
+                            if case .success(let doors) = doorsResult {
+                                candidates.append(contentsOf: doors.map {
+                                    RouteDestination(
+                                        id: $0.id,
+                                        name: $0.name,
+                                        targets: [.door($0)],
+                                        floorIds: [$0.floor]
+                                    )
                                 })
                             }
-                            self.initializeOptimalRouting(
-                                fromCoordinate: coordinate,
-                                destinationNames: destinationNames,
-                                allDestinations: self.groupedDestinations(candidates),
-                                requestID: requestID
-                            )
+
+                            self.mapView.mapData.getByType(.pointOfInterest) { [weak self] (poisResult: Result<[PointOfInterest], Error>) in
+                                guard let self, requestID == self.routeRequestID else { return }
+
+                                if case .success(let pois) = poisResult {
+                                    candidates.append(contentsOf: pois.map {
+                                        var poiFloorIds: Set<String> = [$0.floor]
+                                        if let coordinateFloorId = $0.coordinate.floorId {
+                                            poiFloorIds.insert(coordinateFloorId)
+                                        }
+
+                                        return RouteDestination(
+                                            id: $0.id,
+                                            name: $0.name,
+                                            targets: [.coordinate($0.coordinate)],
+                                            floorIds: poiFloorIds
+                                        )
+                                    })
+                                }
+
+                                self.initializeOptimalRouting(
+                                    fromCoordinate: coordinate,
+                                    destinationNames: destinationNames,
+                                    allDestinations: self.groupedDestinations(candidates),
+                                    requestID: requestID
+                                )
+                            }
                         }
                     }
+
+                case .failure:
+                    self.restartStartSelectionAfterInvalidRoute(
+                        reason: "Failed to load map entities"
+                    )
                 }
-            case .failure:
-                self.restartStartSelectionAfterInvalidRoute(reason: "Failed to load spaces")
             }
         }
     }
@@ -216,7 +287,8 @@ public class NavigationManager {
             return RouteDestination(
                 id: matches.map { $0.id }.joined(separator: ","),
                 name: first.name,
-                targets: matches.flatMap { $0.targets }
+                targets: matches.flatMap { $0.targets },
+                floorIds: Set(matches.flatMap { $0.floorIds })
             )
         }
     }
@@ -245,6 +317,15 @@ public class NavigationManager {
         guard !destinations.isEmpty else {
             return
         }
+
+        let destinationFloorIds = Set(destinations.flatMap { $0.floorIds })
+        let resolvedFloorIds = resolvedRouteFloorIds(
+            destinationFloorIds: destinationFloorIds,
+            startCoordinate: coordinate
+        )
+
+        isMultiFloorRouteActive = resolvedFloorIds.count > 1
+        currentActiveFloors = isMultiFloorRouteActive ? resolvedFloorIds : []
         
         selectedStartCoordinate = coordinate
         determineOptimalOrder(
@@ -411,22 +492,37 @@ public class NavigationManager {
         storeMarkerDetails = []
         
         addRouteMarkers(for: allDirections, destinations: destinations, startCoordinate: startCoordinate)
+
+        updateRouteFloorContext(
+            allDirections: allDirections,
+            destinations: destinations,
+            startCoordinate: startCoordinate
+        )
         
         if let firstLeg = allDirections.first {
             positionCamera(from: startCoordinate, firstLeg: firstLeg)
         }
         
         let navigationOptions = NavigationOptions(
+            animatePathDrawing: true,
             createMarkers: NavigationOptions.CreateMarkers.withDefaults(
-                connection: false,
+                connection: true,
                 departure: false,
                 destination: false
             ),
+            inactivePathOptions: AddPathOptions(
+                accentColor: "#e2e8f0",
+                color: "#93c5fd",
+                displayArrowsOnPath: false
+            ),
+            markerOptions: nil,
             pathOptions: AddPathOptions(
                 accentColor: "white",
                 color: "#4b90e2",
                 displayArrowsOnPath: true
-            )
+            ),
+            setMapOnConnectionClick: true,
+            setMapToDeparture: true
         )
         
         mapView.navigation.draw(directions: allDirections, options: navigationOptions) { [weak self] result in
@@ -434,7 +530,7 @@ public class NavigationManager {
             
             switch result {
             case .success:
-                break
+                self.syncActiveFloorsWithCurrentMapFloorIfNeeded()
             case .failure:
                 self.restartStartSelectionAfterInvalidRoute(reason: "Failed to draw route")
             }
@@ -452,6 +548,8 @@ public class NavigationManager {
         storeMarkerDetails = []
         selectedStartCoordinate = nil
         awaitingUserStartLocation = true
+        isMultiFloorRouteActive = false
+        currentActiveFloors = []
         print(reason)
     }
     
@@ -535,7 +633,7 @@ public class NavigationManager {
         let cameraTarget = CameraTarget(
             bearing: bearing,
             center: from,
-            pitch: CAMERA_PITCH,
+            pitch: isMultiFloorRouteActive ? MULTI_FLOOR_CAMERA_PITCH : CAMERA_PITCH,
             zoomLevel: CAMERA_ZOOM
         )
         
@@ -546,7 +644,7 @@ public class NavigationManager {
         let cameraTarget = CameraTarget(
             bearing: DEFAULT_BEARING,
             center: from,
-            pitch: CAMERA_PITCH,
+            pitch: isMultiFloorRouteActive ? MULTI_FLOOR_CAMERA_PITCH : CAMERA_PITCH,
             zoomLevel: CAMERA_ZOOM
         )
         
@@ -568,6 +666,102 @@ public class NavigationManager {
         directions.instructions.reduce(0) { total, instruction in
             total + instruction.distance
         }
+    }
+
+    private func resolvedRouteFloorIds(destinationFloorIds: Set<String>, startCoordinate: Coordinate) -> Set<String> {
+        var floorIds = destinationFloorIds
+        if let startFloorId = startCoordinate.floorId {
+            floorIds.insert(startFloorId)
+        }
+        return floorIds
+    }
+
+    private func updateRouteFloorContext(
+        allDirections: [Directions],
+        destinations: [RouteDestination],
+        startCoordinate: Coordinate
+    ) {
+        let directionFloorIds = Set(allDirections.flatMap { direction in
+            direction.coordinates.compactMap(\.floorId)
+        })
+        let destinationFloorIds = Set(destinations.flatMap { $0.floorIds })
+
+        var routeFloorIds = directionFloorIds.union(destinationFloorIds)
+        if let startFloorId = startCoordinate.floorId {
+            routeFloorIds.insert(startFloorId)
+        }
+
+        guard routeFloorIds.count > 1 else {
+            isMultiFloorRouteActive = false
+            currentActiveFloors = []
+            return
+        }
+
+        isMultiFloorRouteActive = true
+        currentActiveFloors = routeFloorIds
+
+        let preferredFloorId = startCoordinate.floorId
+            ?? allDirections.first?.coordinates.first?.floorId
+            ?? allDirections.first?.coordinates.last?.floorId
+
+        applyMultiFloorVisibility(
+            activeFloorIds: routeFloorIds,
+            focusFloorId: preferredFloorId,
+            shouldSetFloor: true
+        )
+    }
+
+    private func syncActiveFloorsWithCurrentMapFloorIfNeeded() {
+        guard isMultiFloorRouteActive, !currentActiveFloors.isEmpty else { return }
+
+        mapView.currentFloor { [weak self] result in
+            guard let self else { return }
+            if case .success(let floor?) = result {
+                self.applyMultiFloorVisibility(
+                    activeFloorIds: self.currentActiveFloors,
+                    focusFloorId: floor.id,
+                    shouldSetFloor: false
+                )
+            }
+        }
+    }
+
+    private func applyMultiFloorVisibility(
+        activeFloorIds: Set<String>,
+        focusFloorId: String?,
+        shouldSetFloor: Bool
+    ) {
+        guard !availableFloors.isEmpty else { return }
+
+        for floor in availableFloors {
+            let isVisible = activeFloorIds.contains(floor.id)
+            mapView.updateState(
+                floor: floor,
+                state: floorVisibilityState(isVisible: isVisible)
+            ) { _ in }
+        }
+
+        if shouldSetFloor,
+           let focusFloorId,
+           activeFloorIds.contains(focusFloorId) {
+            mapView.setFloor(floorId: focusFloorId) { _ in }
+        }
+    }
+
+    private func floorVisibilityState(isVisible: Bool) -> FloorUpdateState {
+        FloorUpdateState(
+            type: nil,
+            altitude: nil,
+            visible: isVisible,
+            areas: nil,
+            footprint: nil,
+            geometry: nil,
+            images: nil,
+            labels: nil,
+            markers: nil,
+            occlusion: nil,
+            paths: nil
+        )
     }
     
     // MARK: - Route Name Normalization

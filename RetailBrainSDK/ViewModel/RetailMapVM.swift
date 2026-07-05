@@ -17,9 +17,11 @@ final class RetailMapViewModel: ObservableObject {
     @Published var selectedStore: StoreDetails?
 
     private let onMapLoaded: (() -> Void)?
+    private var customMapId: String?
 
-    init(onMapLoaded: (() -> Void)? = nil) {
+    init(onMapLoaded: (() -> Void)? = nil, mapId: String? = nil) {
         self.onMapLoaded = onMapLoaded
+        self.customMapId = mapId
     }
 
     private lazy var navigationManager = NavigationManager(mapView: mapView) { [weak self] storeDetails in
@@ -36,10 +38,12 @@ final class RetailMapViewModel: ObservableObject {
             return
         }
 
+        let mapIdToLoad = customMapId ?? config.mapId
+        
         let options = GetMapDataWithCredentialsOptions(
             key: config.apiKey,
             secret: config.apiSecret,
-            mapId: config.mapId
+            mapId: mapIdToLoad
         )
 
         mapView.getMapData(options: options) { [weak self] result in
@@ -47,7 +51,43 @@ final class RetailMapViewModel: ObservableObject {
 
             switch result {
             case .success:
-                self.mapView.show3dMap(options: Show3DMapOptions()) { renderResult in
+                let multiFloorOptions = MultiFloorViewOptions(
+                    enabled: true,
+                    floorGap: nil,
+                    floorGapMultiplier: nil,
+                    floorGapFallback: nil,
+                    updateCameraElevationOnFloorChange: true,
+                    footprintColor: nil,
+                    footprintOpacity: nil,
+                    footprintOutline: nil,
+                    spacesOpenToBelowEnabled: nil,
+                    spacesOpenToBelowVisualEffectEnabled: nil,
+                    spacesOpenToBelowVisualEffectDarkenAmount: nil,
+                    spacesOpenToBelowVisualEffectDarkenUseDepth: nil,
+                    spacesOpenToBelowVisualEffectDesaturateAmount: nil,
+                    spacesOpenToBelowVisualEffectDesaturateUseDepth: nil,
+                    spacesOpenToBelowVisualEffectWashOutAmount: nil,
+                    spacesOpenToBelowVisualEffectWashOutUseDepth: nil
+                )
+
+                let showOptions = Show3DMapOptions(
+                    bearing: nil,
+                    debug: nil,
+                    flipImagesToFaceCamera: nil,
+                    initialFloor: nil,
+                    injectStyles: nil,
+                    multiFloorView: multiFloorOptions,
+                    outdoorView: nil,
+                    pitch: nil,
+                    preloadFloors: nil,
+                    screenOffsets: nil,
+                    shadingAndOutlines: nil,
+                    style: nil,
+                    wallTopColor: nil,
+                    zoomLevel: nil
+                )
+
+                self.mapView.show3dMap(options: showOptions) { renderResult in
                     switch renderResult {
                     case .success:
                         print("Map Loaded Successfully")
