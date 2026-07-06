@@ -55,7 +55,9 @@ public struct RetailMapView: View {
     public init(
         routingController: MapRoutingController = MapRoutingController(),
         onMapLoaded: (() -> Void)? = nil,
-        onLaunch: (() -> Void)? = nil
+        onLaunch: (() -> Void)? = nil,
+        mapId: String? = nil,
+        isMultiFloorMode: Bool = false
     ) {
         self.routingController = routingController
         _viewModel = StateObject(
@@ -63,7 +65,7 @@ public struct RetailMapView: View {
                 routingController.markMapReady()
                 onMapLoaded?()
                 onLaunch?()
-            })
+            }, mapId: mapId, isMultiFloorMode: isMultiFloorMode)
         )
     }
 

@@ -18,10 +18,12 @@ final class RetailMapViewModel: ObservableObject {
 
     private let onMapLoaded: (() -> Void)?
     private var customMapId: String?
+    private let isMultiFloorMode: Bool
 
-    init(onMapLoaded: (() -> Void)? = nil, mapId: String? = nil) {
+    init(onMapLoaded: (() -> Void)? = nil, mapId: String? = nil, isMultiFloorMode: Bool = false) {
         self.onMapLoaded = onMapLoaded
         self.customMapId = mapId
+        self.isMultiFloorMode = isMultiFloorMode
     }
 
     private lazy var navigationManager = NavigationManager(mapView: mapView) { [weak self] storeDetails in
@@ -51,24 +53,26 @@ final class RetailMapViewModel: ObservableObject {
 
             switch result {
             case .success:
-                let multiFloorOptions = MultiFloorViewOptions(
-                    enabled: true,
-                    floorGap: nil,
-                    floorGapMultiplier: nil,
-                    floorGapFallback: nil,
-                    updateCameraElevationOnFloorChange: true,
-                    footprintColor: nil,
-                    footprintOpacity: nil,
-                    footprintOutline: nil,
-                    spacesOpenToBelowEnabled: nil,
-                    spacesOpenToBelowVisualEffectEnabled: nil,
-                    spacesOpenToBelowVisualEffectDarkenAmount: nil,
-                    spacesOpenToBelowVisualEffectDarkenUseDepth: nil,
-                    spacesOpenToBelowVisualEffectDesaturateAmount: nil,
-                    spacesOpenToBelowVisualEffectDesaturateUseDepth: nil,
-                    spacesOpenToBelowVisualEffectWashOutAmount: nil,
-                    spacesOpenToBelowVisualEffectWashOutUseDepth: nil
-                )
+                let multiFloorOptions: MultiFloorViewOptions? = isMultiFloorMode
+                    ? MultiFloorViewOptions(
+                        enabled: true,
+                        floorGap: nil,
+                        floorGapMultiplier: nil,
+                        floorGapFallback: nil,
+                        updateCameraElevationOnFloorChange: true,
+                        footprintColor: nil,
+                        footprintOpacity: nil,
+                        footprintOutline: nil,
+                        spacesOpenToBelowEnabled: nil,
+                        spacesOpenToBelowVisualEffectEnabled: nil,
+                        spacesOpenToBelowVisualEffectDarkenAmount: nil,
+                        spacesOpenToBelowVisualEffectDarkenUseDepth: nil,
+                        spacesOpenToBelowVisualEffectDesaturateAmount: nil,
+                        spacesOpenToBelowVisualEffectDesaturateUseDepth: nil,
+                        spacesOpenToBelowVisualEffectWashOutAmount: nil,
+                        spacesOpenToBelowVisualEffectWashOutUseDepth: nil
+                    )
+                    : nil
 
                 let showOptions = Show3DMapOptions(
                     bearing: nil,
