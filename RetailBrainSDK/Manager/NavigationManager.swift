@@ -823,13 +823,17 @@ public class NavigationManager {
             mapView.updateState(
                 floor: floor,
                 state: floorVisibilityState(isVisible: isVisible)
-            ) { _ in }
+            ) { _ in
+                // TODO: Handle the updateState completion callback if any post-update logic is required in the future.
+            }
         }
 
         if shouldSetFloor,
            let focusFloorId,
            activeFloorIds.contains(focusFloorId) {
-            mapView.setFloor(floorId: focusFloorId) { _ in }
+            mapView.setFloor(floorId: focusFloorId) { _ in
+                // TODO: Handle the setFloor completion callback if any update logic is required in the future.
+            }
         }
     }
 
