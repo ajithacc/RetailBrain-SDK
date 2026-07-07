@@ -196,84 +196,169 @@ public class NavigationManager {
     ) {
         loadFloors(requestID: requestID) { [weak self] in
             guard let self, requestID == self.routeRequestID else { return }
-            
-            self.mapView.mapData.getByType(.space) { [weak self] (spacesResult: Result<[Space], Error>) in
+            self.fetchRouteCandidates(requestID: requestID) { [weak self] result in
                 guard let self, requestID == self.routeRequestID else { return }
 
-                switch spacesResult {
-                case .success(let spaces):
-                    var candidates = spaces.map {
-                        RouteDestination(
-                            id: $0.id,
-                            name: $0.name,
-                            targets: [.space($0)],
-                            floorIds: [$0.floor]
-                        )
-                    }
-
-                    self.mapView.mapData.getByType(.mapObject) { [weak self] (objectsResult: Result<[MapObject], Error>) in
-                        guard let self, requestID == self.routeRequestID else { return }
-
-                        if case .success(let objects) = objectsResult {
-                            candidates.append(contentsOf: objects.map {
-                                RouteDestination(
-                                    id: $0.id,
-                                    name: $0.name,
-                                    targets: [.mapObject($0)],
-                                    floorIds: [$0.floor]
-                                )
-                            })
-                        }
-
-                        self.mapView.mapData.getByType(.door) { [weak self] (doorsResult: Result<[Door], Error>) in
-                            guard let self, requestID == self.routeRequestID else { return }
-
-                            if case .success(let doors) = doorsResult {
-                                candidates.append(contentsOf: doors.map {
-                                    RouteDestination(
-                                        id: $0.id,
-                                        name: $0.name,
-                                        targets: [.door($0)],
-                                        floorIds: [$0.floor]
-                                    )
-                                })
-                            }
-
-                            self.mapView.mapData.getByType(.pointOfInterest) { [weak self] (poisResult: Result<[PointOfInterest], Error>) in
-                                guard let self, requestID == self.routeRequestID else { return }
-
-                                if case .success(let pois) = poisResult {
-                                    candidates.append(contentsOf: pois.map {
-                                        var poiFloorIds: Set<String> = [$0.floor]
-                                        if let coordinateFloorId = $0.coordinate.floorId {
-                                            poiFloorIds.insert(coordinateFloorId)
-                                        }
-
-                                        return RouteDestination(
-                                            id: $0.id,
-                                            name: $0.name,
-                                            targets: [.coordinate($0.coordinate)],
-                                            floorIds: poiFloorIds
-                                        )
-                                    })
-                                }
-
-                                self.initializeOptimalRouting(
-                                    fromCoordinate: coordinate,
-                                    destinationNames: destinationNames,
-                                    allDestinations: self.groupedDestinations(candidates),
-                                    requestID: requestID
-                                )
-                            }
-                        }
-                    }
-
+                switch result {
+                case .success(let candidates):
+                    self.initializeOptimalRouting(
+                        fromCoordinate: coordinate,
+                        destinationNames: destinationNames,
+                        allDestinations: self.groupedDestinations(candidates),
+                        requestID: requestID
+                    )
                 case .failure:
                     self.restartStartSelectionAfterInvalidRoute(
                         reason: "Failed to load map entities"
                     )
                 }
             }
+        }
+    }
+
+    private func fetchRouteCandidates(
+        requestID: Int,
+        completion: @escaping (Result<[RouteDestination], Error>) -> Void
+    ) {
+        fetchSpaceCandidates(requestID: requestID) { [weak self] spaceResult in
+            guard let self, requestID == self.routeRequestID else { return }
+
+            switch spaceResult {
+            case .success(let spaceCandidates):
+                self.fetchMapObjectCandidates(requestID: requestID) { [weak self] objectCandidates in
+                    guard let self, requestID == self.routeRequestID else { return }
+
+                    self.fetchDoorCandidates(requestID: requestID) { [weak self] doorCandidates in
+                        guard let self, requestID == self.routeRequestID else { return }
+
+                        self.fetchPointOfInterestCandidates(requestID: requestID) { [weak self] poiCandidates in
+                            guard let self, requestID == self.routeRequestID else { return }
+
+                            let candidates =
+                                spaceCandidates +
+                                objectCandidates +
+                                doorCandidates +
+                                poiCandidates
+                            completion(.success(candidates))
+                        }
+                    }
+                }
+            case .failure(let error):
+                completion(.failure(error))
+            }
+        }
+    }
+
+    private func fetchSpaceCandidates(
+        requestID: Int,
+        completion: @escaping (Result<[RouteDestination], Error>) -> Void
+    ) {
+        mapView.mapData.getByType(.space) { [weak self] (result: Result<[Space], Error>) in
+            guard let self, requestID == self.routeRequestID else { return }
+
+            switch result {
+            case .success(let spaces):
+                completion(.success(self.routeDestinations(from: spaces)))
+            case .failure(let error):
+                completion(.failure(error))
+            }
+        }
+    }
+
+    private func fetchMapObjectCandidates(
+        requestID: Int,
+        completion: @escaping ([RouteDestination]) -> Void
+    ) {
+        mapView.mapData.getByType(.mapObject) { [weak self] (result: Result<[MapObject], Error>) in
+            guard let self, requestID == self.routeRequestID else { return }
+
+            if case .success(let objects) = result {
+                completion(self.routeDestinations(from: objects))
+                return
+            }
+
+            completion([])
+        }
+    }
+
+    private func fetchDoorCandidates(
+        requestID: Int,
+        completion: @escaping ([RouteDestination]) -> Void
+    ) {
+        mapView.mapData.getByType(.door) { [weak self] (result: Result<[Door], Error>) in
+            guard let self, requestID == self.routeRequestID else { return }
+
+            if case .success(let doors) = result {
+                completion(self.routeDestinations(from: doors))
+                return
+            }
+
+            completion([])
+        }
+    }
+
+    private func fetchPointOfInterestCandidates(
+        requestID: Int,
+        completion: @escaping ([RouteDestination]) -> Void
+    ) {
+        mapView.mapData.getByType(.pointOfInterest) { [weak self] (result: Result<[PointOfInterest], Error>) in
+            guard let self, requestID == self.routeRequestID else { return }
+
+            if case .success(let pointsOfInterest) = result {
+                completion(self.routeDestinations(from: pointsOfInterest))
+                return
+            }
+
+            completion([])
+        }
+    }
+
+    private func routeDestinations(from spaces: [Space]) -> [RouteDestination] {
+        spaces.map {
+            RouteDestination(
+                id: $0.id,
+                name: $0.name,
+                targets: [.space($0)],
+                floorIds: [$0.floor]
+            )
+        }
+    }
+
+    private func routeDestinations(from mapObjects: [MapObject]) -> [RouteDestination] {
+        mapObjects.map {
+            RouteDestination(
+                id: $0.id,
+                name: $0.name,
+                targets: [.mapObject($0)],
+                floorIds: [$0.floor]
+            )
+        }
+    }
+
+    private func routeDestinations(from doors: [Door]) -> [RouteDestination] {
+        doors.map {
+            RouteDestination(
+                id: $0.id,
+                name: $0.name,
+                targets: [.door($0)],
+                floorIds: [$0.floor]
+            )
+        }
+    }
+
+    private func routeDestinations(from pointsOfInterest: [PointOfInterest]) -> [RouteDestination] {
+        pointsOfInterest.map {
+            var floorIds: Set<String> = [$0.floor]
+            if let coordinateFloorId = $0.coordinate.floorId {
+                floorIds.insert(coordinateFloorId)
+            }
+
+            return RouteDestination(
+                id: $0.id,
+                name: $0.name,
+                targets: [.coordinate($0.coordinate)],
+                floorIds: floorIds
+            )
         }
     }
     
