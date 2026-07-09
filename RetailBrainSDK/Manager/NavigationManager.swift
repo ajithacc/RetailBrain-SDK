@@ -18,6 +18,7 @@ private let CAMERA_PITCH: Double = 0.0
 private let MULTI_FLOOR_CAMERA_PITCH: Double = 45.0
 private let DEFAULT_BEARING: Double = 0.0
 private let BEARING_OFFSET: Double = -33.0
+private let STORE_MARKER_TAP_MAX_DISTANCE_SQUARED: Double = 1e-8
 
 // MARK: - Data Models
 
@@ -117,7 +118,10 @@ public class NavigationManager {
             
             let coordinate = clickPayload.coordinate
             
-            if let markerDetails = self.nearestStoreMarker(to: coordinate) {
+            if let markerDetails = self.nearestStoreMarker(
+                to: coordinate,
+                maxDistanceSquared: STORE_MARKER_TAP_MAX_DISTANCE_SQUARED
+            ) {
                 self.storeSelectCallback?(markerDetails.details)
                 return
             }
@@ -693,10 +697,18 @@ public class NavigationManager {
     
     // MARK: - Nearest Store Marker
     
-    private func nearestStoreMarker(to coordinate: Coordinate) -> StoreMarkerDetails? {
-        storeMarkerDetails.min { first, second in
+    private func nearestStoreMarker(to coordinate: Coordinate, maxDistanceSquared: Double) -> StoreMarkerDetails? {
+        guard let nearest = storeMarkerDetails.min(by: { first, second in
             distanceSquared(from: coordinate, to: first.coordinate) < distanceSquared(from: coordinate, to: second.coordinate)
+        }) else {
+            return nil
         }
+
+        guard distanceSquared(from: coordinate, to: nearest.coordinate) <= maxDistanceSquared else {
+            return nil
+        }
+
+        return nearest
     }
     
     private func distanceSquared(from first: Coordinate, to second: Coordinate) -> Double {

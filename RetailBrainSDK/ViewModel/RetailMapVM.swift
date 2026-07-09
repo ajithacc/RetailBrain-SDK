@@ -29,6 +29,9 @@ final class RetailMapViewModel: ObservableObject {
     private lazy var navigationManager = NavigationManager(mapView: mapView) { [weak self] storeDetails in
         DispatchQueue.main.async {
             self?.selectedStore = storeDetails
+            if let storeDetails {
+                RetailBrainManager.shared.delegate?.didTapProductPointer(storeDetails)
+            }
         }
     }
 
