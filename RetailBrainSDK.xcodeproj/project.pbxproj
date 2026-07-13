@@ -7,14 +7,31 @@
 	objects = {
 
 /* Begin PBXBuildFile section */
+		20B2BD19300108A900031294 /* RetailBrainSDK.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = 2CACF31A2FE9421100E7A647 /* RetailBrainSDK.framework */; platformFilter = ios; };
 		2CACF32E2FE942F000E7A647 /* Mappedin in Frameworks */ = {isa = PBXBuildFile; productRef = 2CACF32D2FE942F000E7A647 /* Mappedin */; };
 /* End PBXBuildFile section */
 
+/* Begin PBXContainerItemProxy section */
+		20B2BD1A300108A900031294 /* PBXContainerItemProxy */ = {
+			isa = PBXContainerItemProxy;
+			containerPortal = 2CACF3112FE9421100E7A647 /* Project object */;
+			proxyType = 1;
+			remoteGlobalIDString = 2CACF3192FE9421100E7A647;
+			remoteInfo = RetailBrainSDK;
+		};
+/* End PBXContainerItemProxy section */
+
 /* Begin PBXFileReference section */
+		20B2BD15300108A900031294 /* RetailBrainSDKTests.xctest */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = RetailBrainSDKTests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
 		2CACF31A2FE9421100E7A647 /* RetailBrainSDK.framework */ = {isa = PBXFileReference; explicitFileType = wrapper.framework; includeInIndex = 0; path = RetailBrainSDK.framework; sourceTree = BUILT_PRODUCTS_DIR; };
 /* End PBXFileReference section */
 
 /* Begin PBXFileSystemSynchronizedRootGroup section */
+		20B2BD16300108A900031294 /* RetailBrainSDKTests */ = {
+			isa = PBXFileSystemSynchronizedRootGroup;
+			path = RetailBrainSDKTests;
+			sourceTree = "<group>";
+		};
 		2CACF31C2FE9421100E7A647 /* RetailBrainSDK */ = {
 			isa = PBXFileSystemSynchronizedRootGroup;
 			path = RetailBrainSDK;
@@ -23,6 +40,14 @@
 /* End PBXFileSystemSynchronizedRootGroup section */
 
 /* Begin PBXFrameworksBuildPhase section */
+		20B2BD12300108A900031294 /* Frameworks */ = {
+			isa = PBXFrameworksBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				20B2BD19300108A900031294 /* RetailBrainSDK.framework in Frameworks */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
 		2CACF3172FE9421100E7A647 /* Frameworks */ = {
 			isa = PBXFrameworksBuildPhase;
 			buildActionMask = 2147483647;
@@ -38,6 +63,7 @@
 			isa = PBXGroup;
 			children = (
 				2CACF31C2FE9421100E7A647 /* RetailBrainSDK */,
+				20B2BD16300108A900031294 /* RetailBrainSDKTests */,
 				2CACF31B2FE9421100E7A647 /* Products */,
 			);
 			sourceTree = "<group>";
@@ -46,6 +72,7 @@
 			isa = PBXGroup;
 			children = (
 				2CACF31A2FE9421100E7A647 /* RetailBrainSDK.framework */,
+				20B2BD15300108A900031294 /* RetailBrainSDKTests.xctest */,
 			);
 			name = Products;
 			sourceTree = "<group>";
@@ -63,6 +90,29 @@
 /* End PBXHeadersBuildPhase section */
 
 /* Begin PBXNativeTarget section */
+		20B2BD14300108A900031294 /* RetailBrainSDKTests */ = {
+			isa = PBXNativeTarget;
+			buildConfigurationList = 20B2BD1E300108A900031294 /* Build configuration list for PBXNativeTarget "RetailBrainSDKTests" */;
+			buildPhases = (
+				20B2BD11300108A900031294 /* Sources */,
+				20B2BD12300108A900031294 /* Frameworks */,
+				20B2BD13300108A900031294 /* Resources */,
+			);
+			buildRules = (
+			);
+			dependencies = (
+				20B2BD1B300108A900031294 /* PBXTargetDependency */,
+			);
+			fileSystemSynchronizedGroups = (
+				20B2BD16300108A900031294 /* RetailBrainSDKTests */,
+			);
+			name = RetailBrainSDKTests;
+			packageProductDependencies = (
+			);
+			productName = RetailBrainSDKTests;
+			productReference = 20B2BD15300108A900031294 /* RetailBrainSDKTests.xctest */;
+			productType = "com.apple.product-type.bundle.unit-test";
+		};
 		2CACF3192FE9421100E7A647 /* RetailBrainSDK */ = {
 			isa = PBXNativeTarget;
 			buildConfigurationList = 2CACF3232FE9421100E7A647 /* Build configuration list for PBXNativeTarget "RetailBrainSDK" */;
@@ -97,6 +147,9 @@
 				LastSwiftUpdateCheck = 2650;
 				LastUpgradeCheck = 2650;
 				TargetAttributes = {
+					20B2BD14300108A900031294 = {
+						CreatedOnToolsVersion = 26.5;
+					};
 					2CACF3192FE9421100E7A647 = {
 						CreatedOnToolsVersion = 26.5;
 					};
@@ -120,11 +173,19 @@
 			projectRoot = "";
 			targets = (
 				2CACF3192FE9421100E7A647 /* RetailBrainSDK */,
+				20B2BD14300108A900031294 /* RetailBrainSDKTests */,
 			);
 		};
 /* End PBXProject section */
 
 /* Begin PBXResourcesBuildPhase section */
+		20B2BD13300108A900031294 /* Resources */ = {
+			isa = PBXResourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
 		2CACF3182FE9421100E7A647 /* Resources */ = {
 			isa = PBXResourcesBuildPhase;
 			buildActionMask = 2147483647;
@@ -135,6 +196,13 @@
 /* End PBXResourcesBuildPhase section */
 
 /* Begin PBXSourcesBuildPhase section */
+		20B2BD11300108A900031294 /* Sources */ = {
+			isa = PBXSourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
 		2CACF3162FE9421100E7A647 /* Sources */ = {
 			isa = PBXSourcesBuildPhase;
 			buildActionMask = 2147483647;
@@ -144,7 +212,59 @@
 		};
 /* End PBXSourcesBuildPhase section */
 
+/* Begin PBXTargetDependency section */
+		20B2BD1B300108A900031294 /* PBXTargetDependency */ = {
+			isa = PBXTargetDependency;
+			platformFilter = ios;
+			target = 2CACF3192FE9421100E7A647 /* RetailBrainSDK */;
+			targetProxy = 20B2BD1A300108A900031294 /* PBXContainerItemProxy */;
+		};
+/* End PBXTargetDependency section */
+
 /* Begin XCBuildConfiguration section */
+		20B2BD1C300108A900031294 /* Debug */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				CODE_SIGN_STYLE = Automatic;
+				CURRENT_PROJECT_VERSION = 1;
+				DEVELOPMENT_TEAM = 2DCF38Y97L;
+				GENERATE_INFOPLIST_FILE = YES;
+				IPHONEOS_DEPLOYMENT_TARGET = 26.5;
+				MARKETING_VERSION = 1.0;
+				PRODUCT_BUNDLE_IDENTIFIER = com.ios.app.RetailBrainSDKTests;
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				SDKROOT = iphoneos;
+				STRING_CATALOG_GENERATE_SYMBOLS = NO;
+				SWIFT_APPROACHABLE_CONCURRENCY = YES;
+				SWIFT_EMIT_LOC_STRINGS = NO;
+				SWIFT_UPCOMING_FEATURE_MEMBER_IMPORT_VISIBILITY = YES;
+				SWIFT_VERSION = 5.0;
+				TARGETED_DEVICE_FAMILY = "1,2";
+			};
+			name = Debug;
+		};
+		20B2BD1D300108A900031294 /* Release */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				CODE_SIGN_STYLE = Automatic;
+				CURRENT_PROJECT_VERSION = 1;
+				DEVELOPMENT_TEAM = 2DCF38Y97L;
+				GENERATE_INFOPLIST_FILE = YES;
+				IPHONEOS_DEPLOYMENT_TARGET = 26.5;
+				MARKETING_VERSION = 1.0;
+				PRODUCT_BUNDLE_IDENTIFIER = com.ios.app.RetailBrainSDKTests;
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				SDKROOT = iphoneos;
+				STRING_CATALOG_GENERATE_SYMBOLS = NO;
+				SWIFT_APPROACHABLE_CONCURRENCY = YES;
+				SWIFT_EMIT_LOC_STRINGS = NO;
+				SWIFT_UPCOMING_FEATURE_MEMBER_IMPORT_VISIBILITY = YES;
+				SWIFT_VERSION = 5.0;
+				TARGETED_DEVICE_FAMILY = "1,2";
+				VALIDATE_PRODUCT = YES;
+			};
+			name = Release;
+		};
 		2CACF3212FE9421100E7A647 /* Debug */ = {
 			isa = XCBuildConfiguration;
 			buildSettings = {
@@ -360,6 +480,15 @@
 /* End XCBuildConfiguration section */
 
 /* Begin XCConfigurationList section */
+		20B2BD1E300108A900031294 /* Build configuration list for PBXNativeTarget "RetailBrainSDKTests" */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				20B2BD1C300108A900031294 /* Debug */,
+				20B2BD1D300108A900031294 /* Release */,
+			);
+			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = Release;
+		};
 		2CACF3142FE9421100E7A647 /* Build configuration list for PBXProject "RetailBrainSDK" */ = {
 			isa = XCConfigurationList;
 			buildConfigurations = (
