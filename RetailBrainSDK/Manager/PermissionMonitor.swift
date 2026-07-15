@@ -61,10 +61,13 @@ public class PermissionMonitor: NSObject, CLLocationManagerDelegate, CBCentralMa
         }
     }
     
-    private func checkPermissionChanges() {
-        let currentLocationStatus = locationManager.authorizationStatus
-        let currentBluetoothStatus = CBManager.authorization
-        
+    func checkPermissionChanges(
+        injectedLocationStatus: CLAuthorizationStatus? = nil,
+        injectedBluetoothStatus: CBManagerAuthorization? = nil
+    ) {
+        let currentLocationStatus = injectedLocationStatus ?? locationManager.authorizationStatus
+        let currentBluetoothStatus = injectedBluetoothStatus ?? CBManager.authorization
+
         if currentLocationStatus != lastLocationStatus {
             if isPermissionRevoked(from: lastLocationStatus, to: currentLocationStatus) {
                 delegate?.permissionMonitorDidDetectPermissionChange(self, revokedPermission: .location)
@@ -73,7 +76,7 @@ public class PermissionMonitor: NSObject, CLLocationManagerDelegate, CBCentralMa
             }
             lastLocationStatus = currentLocationStatus
         }
-        
+
         if currentBluetoothStatus != lastBluetoothStatus {
             if isPermissionRevoked(from: lastBluetoothStatus, to: currentBluetoothStatus) {
                 delegate?.permissionMonitorDidDetectPermissionChange(self, revokedPermission: .bluetooth)
@@ -83,14 +86,14 @@ public class PermissionMonitor: NSObject, CLLocationManagerDelegate, CBCentralMa
             lastBluetoothStatus = currentBluetoothStatus
         }
     }
-    
-    private func isPermissionRevoked(from oldStatus: CLAuthorizationStatus, to newStatus: CLAuthorizationStatus) -> Bool {
+
+    func isPermissionRevoked(from oldStatus: CLAuthorizationStatus, to newStatus: CLAuthorizationStatus) -> Bool {
         let wasGranted = oldStatus == .authorizedAlways || oldStatus == .authorizedWhenInUse
         let isNowDenied = newStatus == .denied || newStatus == .restricted
         return wasGranted && isNowDenied
     }
-    
-    private func isPermissionRevoked(from oldStatus: CBManagerAuthorization, to newStatus: CBManagerAuthorization) -> Bool {
+
+    func isPermissionRevoked(from oldStatus: CBManagerAuthorization, to newStatus: CBManagerAuthorization) -> Bool {
         let wasGranted = oldStatus == .allowedAlways
         let isNowDenied = newStatus == .denied || newStatus == .restricted
         return wasGranted && isNowDenied

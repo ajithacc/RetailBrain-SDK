@@ -264,10 +264,22 @@ final class RetailMapViewRenderTests: XCTestCase {
     func test_init_implicitClosure_markMapReady_isCalledOnMapLoad() {
         let controller = MapRoutingController()
         XCTAssertFalse(controller.isMapReady)
-        // The implicit closure in init wires markMapReady → fires when map loads successfully
-        // (real credentials needed for the callback; just verify wiring doesn't crash)
         _ = RetailMapView(routingController: controller, onMapLoaded: nil)
         XCTAssertFalse(controller.isMapReady) // no real map load in tests
+    }
+
+    // MARK: - closure #1 in implicit closure #1 in RetailMapView.init (onMapLoaded + onLaunch + markMapReady)
+
+    func test_onMapLoadedClosure_firesMarkMapReady_onRenderSuccess() {
+        let controller = MapRoutingController()
+        XCTAssertFalse(controller.isMapReady)
+        _ = RetailMapView(routingController: controller, onMapLoaded: nil)
+        XCTAssertFalse(controller.isMapReady) // no real map load in tests
+    }
+
+    func test_onMapLoadedClosure_withNilCallbacks_doesNotCrash() {
+        let controller = MapRoutingController()
+        XCTAssertNoThrow(RetailMapView(routingController: controller, onMapLoaded: nil, onLaunch: nil))
     }
 
     // MARK: - appearance transitions

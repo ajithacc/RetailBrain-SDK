@@ -149,6 +149,124 @@ final class PermissionMonitorTests: XCTestCase {
         XCTAssertNoThrow(monitor.centralManagerDidUpdateState(centralManager))
     }
 
+    // MARK: - isPermissionRevoked (CLAuthorizationStatus)
+
+    func test_isPermissionRevoked_location_authorizedAlways_toDenied_isTrue() {
+        XCTAssertTrue(monitor.isPermissionRevoked(from: CLAuthorizationStatus.authorizedAlways, to: CLAuthorizationStatus.denied))
+    }
+
+    func test_isPermissionRevoked_location_authorizedWhenInUse_toDenied_isTrue() {
+        XCTAssertTrue(monitor.isPermissionRevoked(from: CLAuthorizationStatus.authorizedWhenInUse, to: CLAuthorizationStatus.denied))
+    }
+
+    func test_isPermissionRevoked_location_authorizedAlways_toRestricted_isTrue() {
+        XCTAssertTrue(monitor.isPermissionRevoked(from: CLAuthorizationStatus.authorizedAlways, to: CLAuthorizationStatus.restricted))
+    }
+
+    func test_isPermissionRevoked_location_authorizedWhenInUse_toRestricted_isTrue() {
+        XCTAssertTrue(monitor.isPermissionRevoked(from: CLAuthorizationStatus.authorizedWhenInUse, to: CLAuthorizationStatus.restricted))
+    }
+
+    func test_isPermissionRevoked_location_notDetermined_toDenied_isFalse() {
+        XCTAssertFalse(monitor.isPermissionRevoked(from: CLAuthorizationStatus.notDetermined, to: CLAuthorizationStatus.denied))
+    }
+
+    func test_isPermissionRevoked_location_denied_toDenied_isFalse() {
+        XCTAssertFalse(monitor.isPermissionRevoked(from: CLAuthorizationStatus.denied, to: CLAuthorizationStatus.denied))
+    }
+
+    func test_isPermissionRevoked_location_authorizedAlways_toNotDetermined_isFalse() {
+        XCTAssertFalse(monitor.isPermissionRevoked(from: CLAuthorizationStatus.authorizedAlways, to: CLAuthorizationStatus.notDetermined))
+    }
+
+    func test_isPermissionRevoked_location_authorizedAlways_toAuthorizedWhenInUse_isFalse() {
+        XCTAssertFalse(monitor.isPermissionRevoked(from: CLAuthorizationStatus.authorizedAlways, to: CLAuthorizationStatus.authorizedWhenInUse))
+    }
+
+    // MARK: - isPermissionRevoked (CBManagerAuthorization)
+
+    func test_isPermissionRevoked_bluetooth_allowedAlways_toDenied_isTrue() {
+        XCTAssertTrue(monitor.isPermissionRevoked(from: CBManagerAuthorization.allowedAlways, to: CBManagerAuthorization.denied))
+    }
+
+    func test_isPermissionRevoked_bluetooth_allowedAlways_toRestricted_isTrue() {
+        XCTAssertTrue(monitor.isPermissionRevoked(from: CBManagerAuthorization.allowedAlways, to: CBManagerAuthorization.restricted))
+    }
+
+    func test_isPermissionRevoked_bluetooth_notDetermined_toDenied_isFalse() {
+        XCTAssertFalse(monitor.isPermissionRevoked(from: CBManagerAuthorization.notDetermined, to: CBManagerAuthorization.denied))
+    }
+
+    func test_isPermissionRevoked_bluetooth_denied_toDenied_isFalse() {
+        XCTAssertFalse(monitor.isPermissionRevoked(from: CBManagerAuthorization.denied, to: CBManagerAuthorization.denied))
+    }
+
+    func test_isPermissionRevoked_bluetooth_allowedAlways_toAllowedAlways_isFalse() {
+        XCTAssertFalse(monitor.isPermissionRevoked(from: CBManagerAuthorization.allowedAlways, to: CBManagerAuthorization.allowedAlways))
+    }
+
+    // MARK: - checkPermissionChanges (injected status)
+
+    func test_checkPermissionChanges_locationRevoked_notifiesDelegate() {
+        // Seed lastLocationStatus as authorizedAlways by injecting a no-op call first
+        monitor.checkPermissionChanges(injectedLocationStatus: .authorizedAlways)
+        mockDelegate.permissionChangeCalled = false
+
+        // Now inject a status change to denied — should fire delegate
+        monitor.checkPermissionChanges(injectedLocationStatus: .denied)
+        XCTAssertTrue(mockDelegate.permissionChangeCalled)
+        XCTAssertEqual(mockDelegate.lastRevokedPermission, .location)
+    }
+
+    func test_checkPermissionChanges_locationNotRevoked_doesNotNotify() {
+        monitor.checkPermissionChanges(injectedLocationStatus: .notDetermined)
+        mockDelegate.permissionChangeCalled = false
+
+        monitor.checkPermissionChanges(injectedLocationStatus: .denied)
+        XCTAssertFalse(mockDelegate.permissionChangeCalled)
+    }
+
+    func test_checkPermissionChanges_locationStatusUnchanged_doesNotNotify() {
+        monitor.checkPermissionChanges(injectedLocationStatus: .authorizedAlways)
+        mockDelegate.permissionChangeCalled = false
+
+        monitor.checkPermissionChanges(injectedLocationStatus: .authorizedAlways)
+        XCTAssertFalse(mockDelegate.permissionChangeCalled)
+    }
+
+    func test_checkPermissionChanges_bluetoothRevoked_notifiesDelegate() {
+        monitor.checkPermissionChanges(injectedBluetoothStatus: .allowedAlways)
+        mockDelegate.permissionChangeCalled = false
+
+        monitor.checkPermissionChanges(injectedBluetoothStatus: .denied)
+        XCTAssertTrue(mockDelegate.permissionChangeCalled)
+        XCTAssertEqual(mockDelegate.lastRevokedPermission, .bluetooth)
+    }
+
+    func test_checkPermissionChanges_bluetoothNotRevoked_doesNotNotify() {
+        monitor.checkPermissionChanges(injectedBluetoothStatus: .notDetermined)
+        mockDelegate.permissionChangeCalled = false
+
+        monitor.checkPermissionChanges(injectedBluetoothStatus: .denied)
+        XCTAssertFalse(mockDelegate.permissionChangeCalled)
+    }
+
+    func test_checkPermissionChanges_locationRevokedEarlyReturn_bluetoothNotChecked() {
+        // Seed both
+        monitor.checkPermissionChanges(injectedLocationStatus: .authorizedAlways, injectedBluetoothStatus: .allowedAlways)
+        mockDelegate.permissionChangeCalled = false
+
+        // Location revoked → early return, bluetooth change not processed
+        monitor.checkPermissionChanges(injectedLocationStatus: .denied, injectedBluetoothStatus: .denied)
+        XCTAssertEqual(mockDelegate.lastRevokedPermission, .location)
+    }
+
+    func test_checkPermissionChanges_withNilDelegate_doesNotCrash() {
+        monitor.delegate = nil
+        monitor.checkPermissionChanges(injectedLocationStatus: .authorizedAlways)
+        XCTAssertNoThrow(monitor.checkPermissionChanges(injectedLocationStatus: .denied))
+    }
+
     // MARK: - RevokedPermission enum
 
     func test_revokedPermission_locationCase_exists() {

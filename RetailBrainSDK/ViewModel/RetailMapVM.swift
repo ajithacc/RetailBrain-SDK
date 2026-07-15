@@ -26,8 +26,18 @@ final class RetailMapViewModel: ObservableObject {
         self.isMultiFloorMode = isMultiFloorMode
     }
 
-    private lazy var navigationManager = NavigationManager(mapView: mapView) { [weak self] storeDetails in
-        DispatchQueue.main.async {
+    private(set) var _navCallback: ((StoreDetails?) -> Void)?
+
+    private lazy var navigationManager: NavigationManager = {
+        let storeSelectionHandler: (StoreDetails?) -> Void = { [weak self] storeDetails in
+            self?.onStoreSelected(storeDetails)
+        }
+        _navCallback = storeSelectionHandler
+        return NavigationManager(mapView: mapView, storeSelectCallback: storeSelectionHandler)
+    }()
+
+    func onStoreSelected(_ storeDetails: StoreDetails?) {
+        DispatchQueue.main.async { [weak self] in
             self?.selectedStore = storeDetails
         }
     }
@@ -41,78 +51,97 @@ final class RetailMapViewModel: ObservableObject {
         }
 
         let mapIdToLoad = customMapId ?? config.mapId
-        
+
         let options = GetMapDataWithCredentialsOptions(
             key: config.apiKey,
             secret: config.apiSecret,
             mapId: mapIdToLoad
         )
 
-        mapView.getMapData(options: options) { [weak self] result in
+        let getMapDataCompletion: (Result<Any?, Error>) -> Void = { [weak self] result in
             guard let self else { return }
-
             switch result {
-            case .success:
-                let multiFloorOptions: MultiFloorViewOptions? = isMultiFloorMode
-                    ? MultiFloorViewOptions(
-                        enabled: true,
-                        floorGap: nil,
-                        floorGapMultiplier: nil,
-                        floorGapFallback: nil,
-                        updateCameraElevationOnFloorChange: true,
-                        footprintColor: nil,
-                        footprintOpacity: nil,
-                        footprintOutline: nil,
-                        spacesOpenToBelowEnabled: nil,
-                        spacesOpenToBelowVisualEffectEnabled: nil,
-                        spacesOpenToBelowVisualEffectDarkenAmount: nil,
-                        spacesOpenToBelowVisualEffectDarkenUseDepth: nil,
-                        spacesOpenToBelowVisualEffectDesaturateAmount: nil,
-                        spacesOpenToBelowVisualEffectDesaturateUseDepth: nil,
-                        spacesOpenToBelowVisualEffectWashOutAmount: nil,
-                        spacesOpenToBelowVisualEffectWashOutUseDepth: nil
-                    )
-                    : nil
-
-                let showOptions = Show3DMapOptions(
-                    bearing: nil,
-                    debug: nil,
-                    flipImagesToFaceCamera: nil,
-                    initialFloor: nil,
-                    injectStyles: nil,
-                    multiFloorView: multiFloorOptions,
-                    outdoorView: nil,
-                    pitch: nil,
-                    preloadFloors: nil,
-                    screenOffsets: nil,
-                    shadingAndOutlines: nil,
-                    style: nil,
-                    wallTopColor: nil,
-                    zoomLevel: nil
-                )
-
-                self.mapView.show3dMap(options: showOptions) { renderResult in
-                    switch renderResult {
-                    case .success:
-                        print("Map Loaded Successfully")
-                        RetailBrainManager.shared.delegate?.mapDidLoad()
-                        self.onMapLoaded?()
-                        self.isLoading = false
-                    case .failure(let error):
-                        print("Map rendering failed")
-                        print(error)
-                        RetailBrainManager.shared.delegate?.mapDidFailToLoad(error: error)
-                        self.isLoading = false
-                    }
-                }
-
-            case .failure(let error):
-                print("Map Loading Failed")
-                print(error)
-                RetailBrainManager.shared.delegate?.mapDidFailToLoad(error: error)
-                self.isLoading = false
+            case .success: self.handleMapDataSuccess()
+            case .failure(let error): self.handleMapDataFailure(error)
             }
         }
+        _getMapDataCallback = getMapDataCompletion
+        mapView.getMapData(options: options, onResult: getMapDataCompletion)
+    }
+
+    private(set) var _getMapDataCallback: ((Result<Any?, Error>) -> Void)?
+
+    func handleMapDataSuccess() {
+        let multiFloorOptions: MultiFloorViewOptions? = isMultiFloorMode
+            ? MultiFloorViewOptions(
+                enabled: true,
+                floorGap: nil,
+                floorGapMultiplier: nil,
+                floorGapFallback: nil,
+                updateCameraElevationOnFloorChange: true,
+                footprintColor: nil,
+                footprintOpacity: nil,
+                footprintOutline: nil,
+                spacesOpenToBelowEnabled: nil,
+                spacesOpenToBelowVisualEffectEnabled: nil,
+                spacesOpenToBelowVisualEffectDarkenAmount: nil,
+                spacesOpenToBelowVisualEffectDarkenUseDepth: nil,
+                spacesOpenToBelowVisualEffectDesaturateAmount: nil,
+                spacesOpenToBelowVisualEffectDesaturateUseDepth: nil,
+                spacesOpenToBelowVisualEffectWashOutAmount: nil,
+                spacesOpenToBelowVisualEffectWashOutUseDepth: nil
+            )
+            : nil
+
+        let showOptions = Show3DMapOptions(
+            bearing: nil,
+            debug: nil,
+            flipImagesToFaceCamera: nil,
+            initialFloor: nil,
+            injectStyles: nil,
+            multiFloorView: multiFloorOptions,
+            outdoorView: nil,
+            pitch: nil,
+            preloadFloors: nil,
+            screenOffsets: nil,
+            shadingAndOutlines: nil,
+            style: nil,
+            wallTopColor: nil,
+            zoomLevel: nil
+        )
+
+        let show3dMapCompletion: (Result<Any?, Error>) -> Void = { [weak self] renderResult in
+            guard let self else { return }
+            switch renderResult {
+            case .success: self.handleRenderSuccess()
+            case .failure(let error): self.handleRenderFailure(error)
+            }
+        }
+        _show3dMapCallback = show3dMapCompletion
+        mapView.show3dMap(options: showOptions, onResult: show3dMapCompletion)
+    }
+
+    private(set) var _show3dMapCallback: ((Result<Any?, Error>) -> Void)?
+
+    func handleMapDataFailure(_ error: Error) {
+        print("Map Loading Failed")
+        print(error)
+        RetailBrainManager.shared.delegate?.mapDidFailToLoad(error: error)
+        isLoading = false
+    }
+
+    func handleRenderSuccess() {
+        print("Map Loaded Successfully")
+        RetailBrainManager.shared.delegate?.mapDidLoad()
+        onMapLoaded?()
+        isLoading = false
+    }
+
+    func handleRenderFailure(_ error: Error) {
+        print("Map rendering failed")
+        print(error)
+        RetailBrainManager.shared.delegate?.mapDidFailToLoad(error: error)
+        isLoading = false
     }
 
     func clearSelections() {

@@ -21,14 +21,14 @@ private let BEARING_OFFSET: Double = -33.0
 
 // MARK: - Data Models
 
-private struct RouteDestination {
+struct RouteDestination {
     let id: String
     let name: String
     let targets: [NavigationTarget]
     let floorIds: Set<String>
 }
 
-private struct StoreMarkerDetails {
+struct StoreMarkerDetails {
     let details: StoreDetails
     let coordinate: Coordinate
 }
@@ -44,7 +44,7 @@ public class NavigationManager {
     private var pendingDestinationNames: [String]? = nil
     private var awaitingUserStartLocation: Bool = false
     private var selectedStartCoordinate: Coordinate?
-    private var routeRequestID = 0
+    private(set) var routeRequestID = 0
     
     private var availableFloors: [Floor] = []
     private var currentActiveFloors: Set<String> = []
@@ -86,13 +86,15 @@ public class NavigationManager {
     }
     
     // MARK: - Tap Gesture Handling
-    
-    private func registerMarkerTapHandler() {
-        mapView.on(Events.click) { [weak self] clickPayload in
+
+    var _clickHandler: ((ClickPayload?) -> Void)?
+
+    func registerMarkerTapHandler() {
+        let handler: (ClickPayload?) -> Void = { [weak self] clickPayload in
             guard let self, let clickPayload else { return }
 
             let tappedMarkers = clickPayload.markers ?? []
-            
+
             // Only treat a tap as route-start selection while explicitly waiting for start input.
             if self.awaitingUserStartLocation,
                let destinations = self.pendingDestinationNames {
@@ -109,26 +111,28 @@ public class NavigationManager {
                 self.startRouteFromTappedCoordinate(clickPayload.coordinate, destinationNames: destinations)
                 return
             }
-            
+
             guard !tappedMarkers.isEmpty else {
                 self.storeSelectCallback?(nil)
                 return
             }
-            
+
             let coordinate = clickPayload.coordinate
-            
+
             if let markerDetails = self.nearestStoreMarker(to: coordinate) {
                 self.storeSelectCallback?(markerDetails.details)
                 return
             }
-            
+
             self.storeSelectCallback?(nil)
         }
+        _clickHandler = handler
+        mapView.on(Events.click, handler)
     }
     
     // MARK: - Route Initialization
     
-    private func startRouteFromTappedCoordinate(_ coordinate: Coordinate, destinationNames: [String]) {
+    func startRouteFromTappedCoordinate(_ coordinate: Coordinate, destinationNames: [String]) {
         routeRequestID += 1
         selectedStartCoordinate = coordinate
         mapView.navigation.clear()
@@ -147,7 +151,7 @@ public class NavigationManager {
     
     // MARK: - Initial Marker Setup
     
-    private func addMarkerForUserLoc(
+    func addMarkerForUserLoc(
         title: String,
         subtitle: String?,
         color: String,
@@ -173,23 +177,25 @@ public class NavigationManager {
     
     // MARK: - Floor Loading for Multi-Floor Support
     
-    private func loadFloors(requestID: Int, completion: @escaping () -> Void) {
-        mapView.mapData.getByType(.floor) { [weak self] (floorsResult: Result<[Floor], Error>) in
+    private(set) var _loadFloorsCallback: ((Result<[Floor], Error>) -> Void)?
+
+    func loadFloors(requestID: Int, completion: @escaping () -> Void) {
+        let cb: (Result<[Floor], Error>) -> Void = { [weak self] floorsResult in
             guard let self, requestID == self.routeRequestID else { return }
-            
             if case .success(let floors) = floorsResult {
                 self.availableFloors = floors
             } else {
                 self.availableFloors = []
             }
-            
             completion()
         }
+        _loadFloorsCallback = cb
+        mapView.mapData.getByType(.floor, onResult: cb)
     }
     
     // MARK: - Fetching Spaces, MapObjects, Doors, and POIs for Route Calculation
     
-    private func drawNearestSpaceRoute(
+    func drawNearestSpaceRoute(
         fromCoordinate coordinate: Coordinate,
         destinationNames: [String],
         requestID: Int
@@ -216,7 +222,7 @@ public class NavigationManager {
         }
     }
 
-    private func fetchRouteCandidates(
+    func fetchRouteCandidates(
         requestID: Int,
         completion: @escaping (Result<[RouteDestination], Error>) -> Void
     ) {
@@ -249,13 +255,14 @@ public class NavigationManager {
         }
     }
 
-    private func fetchSpaceCandidates(
+    private(set) var _fetchSpacesCallback: ((Result<[Space], Error>) -> Void)?
+
+    func fetchSpaceCandidates(
         requestID: Int,
         completion: @escaping (Result<[RouteDestination], Error>) -> Void
     ) {
-        mapView.mapData.getByType(.space) { [weak self] (result: Result<[Space], Error>) in
+        let cb: (Result<[Space], Error>) -> Void = { [weak self] result in
             guard let self, requestID == self.routeRequestID else { return }
-
             switch result {
             case .success(let spaces):
                 completion(.success(self.routeDestinations(from: spaces)))
@@ -263,57 +270,65 @@ public class NavigationManager {
                 completion(.failure(error))
             }
         }
+        _fetchSpacesCallback = cb
+        mapView.mapData.getByType(.space, onResult: cb)
     }
 
-    private func fetchMapObjectCandidates(
+    private(set) var _fetchMapObjectsCallback: ((Result<[MapObject], Error>) -> Void)?
+
+    func fetchMapObjectCandidates(
         requestID: Int,
         completion: @escaping ([RouteDestination]) -> Void
     ) {
-        mapView.mapData.getByType(.mapObject) { [weak self] (result: Result<[MapObject], Error>) in
+        let cb: (Result<[MapObject], Error>) -> Void = { [weak self] result in
             guard let self, requestID == self.routeRequestID else { return }
-
             if case .success(let objects) = result {
                 completion(self.routeDestinations(from: objects))
                 return
             }
-
             completion([])
         }
+        _fetchMapObjectsCallback = cb
+        mapView.mapData.getByType(.mapObject, onResult: cb)
     }
 
-    private func fetchDoorCandidates(
+    private(set) var _fetchDoorsCallback: ((Result<[Door], Error>) -> Void)?
+
+    func fetchDoorCandidates(
         requestID: Int,
         completion: @escaping ([RouteDestination]) -> Void
     ) {
-        mapView.mapData.getByType(.door) { [weak self] (result: Result<[Door], Error>) in
+        let cb: (Result<[Door], Error>) -> Void = { [weak self] result in
             guard let self, requestID == self.routeRequestID else { return }
-
             if case .success(let doors) = result {
                 completion(self.routeDestinations(from: doors))
                 return
             }
-
             completion([])
         }
+        _fetchDoorsCallback = cb
+        mapView.mapData.getByType(.door, onResult: cb)
     }
 
-    private func fetchPointOfInterestCandidates(
+    private(set) var _fetchPoisCallback: ((Result<[PointOfInterest], Error>) -> Void)?
+
+    func fetchPointOfInterestCandidates(
         requestID: Int,
         completion: @escaping ([RouteDestination]) -> Void
     ) {
-        mapView.mapData.getByType(.pointOfInterest) { [weak self] (result: Result<[PointOfInterest], Error>) in
+        let cb: (Result<[PointOfInterest], Error>) -> Void = { [weak self] result in
             guard let self, requestID == self.routeRequestID else { return }
-
             if case .success(let pointsOfInterest) = result {
                 completion(self.routeDestinations(from: pointsOfInterest))
                 return
             }
-
             completion([])
         }
+        _fetchPoisCallback = cb
+        mapView.mapData.getByType(.pointOfInterest, onResult: cb)
     }
 
-    private func routeDestinations(from spaces: [Space]) -> [RouteDestination] {
+    func routeDestinations(from spaces: [Space]) -> [RouteDestination] {
         spaces.map {
             RouteDestination(
                 id: $0.id,
@@ -324,7 +339,7 @@ public class NavigationManager {
         }
     }
 
-    private func routeDestinations(from mapObjects: [MapObject]) -> [RouteDestination] {
+    func routeDestinations(from mapObjects: [MapObject]) -> [RouteDestination] {
         mapObjects.map {
             RouteDestination(
                 id: $0.id,
@@ -335,7 +350,7 @@ public class NavigationManager {
         }
     }
 
-    private func routeDestinations(from doors: [Door]) -> [RouteDestination] {
+    func routeDestinations(from doors: [Door]) -> [RouteDestination] {
         doors.map {
             RouteDestination(
                 id: $0.id,
@@ -346,7 +361,7 @@ public class NavigationManager {
         }
     }
 
-    private func routeDestinations(from pointsOfInterest: [PointOfInterest]) -> [RouteDestination] {
+    func routeDestinations(from pointsOfInterest: [PointOfInterest]) -> [RouteDestination] {
         pointsOfInterest.map {
             var floorIds: Set<String> = [$0.floor]
             if let coordinateFloorId = $0.coordinate.floorId {
@@ -364,7 +379,7 @@ public class NavigationManager {
     
     // MARK: - Destination Grouping and Lookup
     
-    private func groupedDestinations(_ destinations: [RouteDestination]) -> [RouteDestination] {
+    func groupedDestinations(_ destinations: [RouteDestination]) -> [RouteDestination] {
         let grouped = Dictionary(grouping: destinations) { normalizedRouteName($0.name) }
         
         return grouped.values.compactMap { matches in
@@ -380,7 +395,7 @@ public class NavigationManager {
     
     // MARK: - Optimal Routing Initialization
     
-    private func initializeOptimalRouting(
+    func initializeOptimalRouting(
         fromCoordinate coordinate: Coordinate,
         destinationNames: [String],
         allDestinations: [RouteDestination],
@@ -422,7 +437,7 @@ public class NavigationManager {
     
     // MARK: - Destination Lookup
     
-    private func findDestination(named name: String, in destinations: [RouteDestination]) -> RouteDestination? {
+    func findDestination(named name: String, in destinations: [RouteDestination]) -> RouteDestination? {
         let aliases = name
             .split(separator: "|")
             .map { normalizedRouteName(String($0)) }
@@ -448,7 +463,7 @@ public class NavigationManager {
     
     // MARK: - Optimal Route Order (Greedy Nearest-Neighbor)
     
-    private func determineOptimalOrder(
+    func determineOptimalOrder(
         startCoordinate: Coordinate,
         destinations: [RouteDestination],
         requestID: Int
@@ -464,7 +479,7 @@ public class NavigationManager {
     
     // MARK: - Optimal Route Order (Greedy Nearest-Neighbor)
     
-    private func buildOptimalOrder(
+    func buildOptimalOrder(
         currentTargets: [NavigationTarget],
         startCoordinate: Coordinate,
         remainingDestinations: [RouteDestination],
@@ -521,7 +536,7 @@ public class NavigationManager {
     
     // MARK: - Multi-Destination Route Drawing
     
-    private func drawMultiDestinationRoute(
+    func drawMultiDestinationRoute(
         startCoordinate: Coordinate,
         destinations: [RouteDestination],
         requestID: Int
@@ -563,7 +578,7 @@ public class NavigationManager {
     
     // MARK: - Multi-Destination Route Rendering
     
-    private func renderMultiDestinationRoute(
+    func renderMultiDestinationRoute(
         allDirections: [Directions],
         destinations: [RouteDestination],
         startCoordinate: Coordinate,
@@ -624,7 +639,7 @@ public class NavigationManager {
     
     // MARK: - Restarting start selection after an invalid route or error
     
-    private func restartStartSelectionAfterInvalidRoute(reason: String) {
+    func restartStartSelectionAfterInvalidRoute(reason: String) {
         guard let destinations = pendingDestinationNames, !destinations.isEmpty else { return }
         
         mapView.navigation.clear()
@@ -640,7 +655,7 @@ public class NavigationManager {
     
     // MARK: - Add Route Markers at Waypoints
     
-    private func addRouteMarkers(
+    func addRouteMarkers(
         for allDirections: [Directions],
         destinations: [RouteDestination],
         startCoordinate: Coordinate
@@ -693,13 +708,13 @@ public class NavigationManager {
     
     // MARK: - Nearest Store Marker
     
-    private func nearestStoreMarker(to coordinate: Coordinate) -> StoreMarkerDetails? {
+    func nearestStoreMarker(to coordinate: Coordinate) -> StoreMarkerDetails? {
         storeMarkerDetails.min { first, second in
             distanceSquared(from: coordinate, to: first.coordinate) < distanceSquared(from: coordinate, to: second.coordinate)
         }
     }
     
-    private func distanceSquared(from first: Coordinate, to second: Coordinate) -> Double {
+    func distanceSquared(from first: Coordinate, to second: Coordinate) -> Double {
         let latitudeDifference = first.latitude - second.latitude
         let longitudeDifference = first.longitude - second.longitude
         return latitudeDifference * latitudeDifference + longitudeDifference * longitudeDifference
@@ -707,7 +722,7 @@ public class NavigationManager {
     
     // MARK: - Camera and Utility Methods
     
-    private func positionCamera(from: Coordinate, firstLeg: Directions) {
+    func positionCamera(from: Coordinate, firstLeg: Directions) {
         guard let toCoordinate = firstLeg.coordinates.last else {
             positionCameraDefault(from: from)
             return
@@ -725,7 +740,7 @@ public class NavigationManager {
         mapView.camera.set(target: cameraTarget) { _ in }
     }
     
-    private func positionCameraDefault(from: Coordinate) {
+    func positionCameraDefault(from: Coordinate) {
         let cameraTarget = CameraTarget(
             bearing: DEFAULT_BEARING,
             center: from,
@@ -736,7 +751,7 @@ public class NavigationManager {
         mapView.camera.set(target: cameraTarget) { _ in }
     }
     
-    private func calculateBearing(from: Coordinate, to: Coordinate) -> Double {
+    func calculateBearing(from: Coordinate, to: Coordinate) -> Double {
         let angleDegrees = (180.0 / .pi) * atan2(
             to.longitude - from.longitude,
             to.latitude - from.latitude
@@ -747,13 +762,13 @@ public class NavigationManager {
     
     // MARK: - Route Distance Calculation
     
-    private func totalDistance(for directions: Directions) -> Double {
+    func totalDistance(for directions: Directions) -> Double {
         directions.instructions.reduce(0) { total, instruction in
             total + instruction.distance
         }
     }
 
-    private func resolvedRouteFloorIds(destinationFloorIds: Set<String>, startCoordinate: Coordinate) -> Set<String> {
+    func resolvedRouteFloorIds(destinationFloorIds: Set<String>, startCoordinate: Coordinate) -> Set<String> {
         var floorIds = destinationFloorIds
         if let startFloorId = startCoordinate.floorId {
             floorIds.insert(startFloorId)
@@ -761,7 +776,7 @@ public class NavigationManager {
         return floorIds
     }
 
-    private func updateRouteFloorContext(
+    func updateRouteFloorContext(
         allDirections: [Directions],
         destinations: [RouteDestination],
         startCoordinate: Coordinate
@@ -796,7 +811,7 @@ public class NavigationManager {
         )
     }
 
-    private func syncActiveFloorsWithCurrentMapFloorIfNeeded() {
+    func syncActiveFloorsWithCurrentMapFloorIfNeeded() {
         guard isMultiFloorRouteActive, !currentActiveFloors.isEmpty else { return }
 
         mapView.currentFloor { [weak self] result in
@@ -811,7 +826,7 @@ public class NavigationManager {
         }
     }
 
-    private func applyMultiFloorVisibility(
+    func applyMultiFloorVisibility(
         activeFloorIds: Set<String>,
         focusFloorId: String?,
         shouldSetFloor: Bool
@@ -837,7 +852,7 @@ public class NavigationManager {
         }
     }
 
-    private func floorVisibilityState(isVisible: Bool) -> FloorUpdateState {
+    func floorVisibilityState(isVisible: Bool) -> FloorUpdateState {
         FloorUpdateState(
             type: nil,
             altitude: nil,
@@ -855,7 +870,7 @@ public class NavigationManager {
     
     // MARK: - Route Name Normalization
     
-    private func normalizedRouteName(_ name: String) -> String {
+    func normalizedRouteName(_ name: String) -> String {
         name.trimmingCharacters(in: .whitespacesAndNewlines)
             .lowercased()
     }
