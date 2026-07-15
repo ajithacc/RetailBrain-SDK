@@ -2,6 +2,8 @@
 //  RetailBrainSDKErrorTests.swift
 //  RetailBrainSDKTests
 //
+//  Created by sowmya.prasanna on 15/07/26.
+//
 
 import XCTest
 @testable import RetailBrainSDK

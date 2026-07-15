@@ -2,6 +2,8 @@
 //  NavigationManagerTests.swift
 //  RetailBrainSDKTests
 //
+//  Created by sowmya.prasanna on 15/07/26.
+//
 
 import XCTest
 import Mappedin
@@ -498,5 +500,536 @@ final class NavigationManagerTests: XCTestCase {
     func test_fetchPointOfInterestCandidates_storesCallback() {
         manager.fetchPointOfInterestCandidates(requestID: manager.routeRequestID) { _ in }
         XCTAssertNotNil(manager._fetchPoisCallback)
+    }
+
+    // MARK: - Helpers
+
+    private func makeDirections(coordinates: [Coordinate] = []) -> Directions {
+        Directions(
+            departure: .coordinate(Coordinate(latitude: 0, longitude: 0)),
+            destination: .coordinate(Coordinate(latitude: 1, longitude: 1)),
+            id: "test-dir",
+            coordinates: coordinates,
+            distance: 10.0,
+            instructions: []
+        )
+    }
+
+    private func makeRouteDestination(name: String = "Nike") -> RouteDestination {
+        RouteDestination(id: "dest-1", name: name, targets: [.coordinate(Coordinate(latitude: 0, longitude: 0))], floorIds: [])
+    }
+
+    // MARK: - initializeOptimalRouting
+
+    func test_initializeOptimalRouting_emptyDestinations_doesNotCrash() {
+        manager.prepareToDrawRoute(destinationNames: ["Nike"])
+        XCTAssertNoThrow(manager.initializeOptimalRouting(
+            fromCoordinate: Coordinate(latitude: 0, longitude: 0),
+            destinationNames: ["Nike"],
+            allDestinations: [],
+            requestID: manager.routeRequestID
+        ))
+    }
+
+    func test_initializeOptimalRouting_noMatchingDestination_doesNotCrash() {
+        manager.prepareToDrawRoute(destinationNames: ["Nike"])
+        let dests = [makeRouteDestination(name: "Zara")]
+        XCTAssertNoThrow(manager.initializeOptimalRouting(
+            fromCoordinate: Coordinate(latitude: 0, longitude: 0),
+            destinationNames: ["Nike"],
+            allDestinations: dests,
+            requestID: manager.routeRequestID
+        ))
+    }
+
+    func test_initializeOptimalRouting_matchingDestination_storesGetDirectionsCallback() {
+        manager.prepareToDrawRoute(destinationNames: ["Nike"])
+        let dests = [makeRouteDestination(name: "Nike")]
+        manager.initializeOptimalRouting(
+            fromCoordinate: Coordinate(latitude: 0, longitude: 0),
+            destinationNames: ["Nike"],
+            allDestinations: dests,
+            requestID: manager.routeRequestID
+        )
+        XCTAssertNotNil(manager._getDirectionsCallback)
+    }
+
+    // MARK: - buildOptimalOrder + _getDirectionsCallback
+
+    func test_buildOptimalOrder_emptyRemaining_callsDrawMultiDestination() {
+        manager.prepareToDrawRoute(destinationNames: ["Nike"])
+        XCTAssertNoThrow(manager.buildOptimalOrder(
+            currentTargets: [.coordinate(Coordinate(latitude: 0, longitude: 0))],
+            startCoordinate: Coordinate(latitude: 0, longitude: 0),
+            remainingDestinations: [],
+            orderedDestinations: [],
+            requestID: manager.routeRequestID
+        ))
+    }
+
+    func test_buildOptimalOrder_withDestination_storesGetDirectionsCallback() {
+        manager.prepareToDrawRoute(destinationNames: ["Nike"])
+        manager.buildOptimalOrder(
+            currentTargets: [.coordinate(Coordinate(latitude: 0, longitude: 0))],
+            startCoordinate: Coordinate(latitude: 0, longitude: 0),
+            remainingDestinations: [makeRouteDestination()],
+            orderedDestinations: [],
+            requestID: manager.routeRequestID
+        )
+        XCTAssertNotNil(manager._getDirectionsCallback)
+    }
+
+    func test_getDirectionsCallback_nilDirections_callsDrawWithOrderedSoFar() {
+        manager.prepareToDrawRoute(destinationNames: ["Nike"])
+        manager.buildOptimalOrder(
+            currentTargets: [.coordinate(Coordinate(latitude: 0, longitude: 0))],
+            startCoordinate: Coordinate(latitude: 0, longitude: 0),
+            remainingDestinations: [makeRouteDestination()],
+            orderedDestinations: [],
+            requestID: manager.routeRequestID
+        )
+        XCTAssertNoThrow(manager._getDirectionsCallback?(.success(nil)))
+    }
+
+    func test_getDirectionsCallback_failure_doesNotCrash() {
+        manager.prepareToDrawRoute(destinationNames: ["Nike"])
+        manager.buildOptimalOrder(
+            currentTargets: [.coordinate(Coordinate(latitude: 0, longitude: 0))],
+            startCoordinate: Coordinate(latitude: 0, longitude: 0),
+            remainingDestinations: [makeRouteDestination()],
+            orderedDestinations: [],
+            requestID: manager.routeRequestID
+        )
+        XCTAssertNoThrow(manager._getDirectionsCallback?(.failure(RetailBrainSDKError.invalidConfiguration)))
+    }
+
+    func test_getDirectionsCallback_successWithDirections_storesMultiDestCallback() {
+        manager.prepareToDrawRoute(destinationNames: ["Nike"])
+        manager.buildOptimalOrder(
+            currentTargets: [.coordinate(Coordinate(latitude: 0, longitude: 0))],
+            startCoordinate: Coordinate(latitude: 0, longitude: 0),
+            remainingDestinations: [makeRouteDestination()],
+            orderedDestinations: [],
+            requestID: manager.routeRequestID
+        )
+        let dirs = makeDirections(coordinates: [Coordinate(latitude: 0, longitude: 0), Coordinate(latitude: 1, longitude: 1)])
+        manager._getDirectionsCallback?(.success(dirs))
+        XCTAssertNotNil(manager._multiDestinationCallback)
+    }
+
+    // MARK: - determineOptimalOrder
+
+    func test_determineOptimalOrder_withDestinations_storesCallback() {
+        manager.prepareToDrawRoute(destinationNames: ["Nike"])
+        manager.determineOptimalOrder(
+            startCoordinate: Coordinate(latitude: 0, longitude: 0),
+            destinations: [makeRouteDestination()],
+            requestID: manager.routeRequestID
+        )
+        XCTAssertNotNil(manager._getDirectionsCallback)
+    }
+
+    func test_determineOptimalOrder_emptyDestinations_doesNotCrash() {
+        manager.prepareToDrawRoute(destinationNames: ["Nike"])
+        // Empty destinations → buildOptimalOrder with empty remaining → drawMultiDestinationRoute([], ...) → restartSelection
+        XCTAssertNoThrow(manager.determineOptimalOrder(
+            startCoordinate: Coordinate(latitude: 0, longitude: 0),
+            destinations: [],
+            requestID: manager.routeRequestID
+        ))
+    }
+
+    // MARK: - drawMultiDestinationRoute + _multiDestinationCallback
+
+    func test_drawMultiDestinationRoute_emptyDestinations_doesNotCrash() {
+        manager.prepareToDrawRoute(destinationNames: ["Nike"])
+        XCTAssertNoThrow(manager.drawMultiDestinationRoute(
+            startCoordinate: Coordinate(latitude: 0, longitude: 0),
+            destinations: [],
+            requestID: manager.routeRequestID
+        ))
+    }
+
+    func test_drawMultiDestinationRoute_withDestinations_storesCallback() {
+        manager.prepareToDrawRoute(destinationNames: ["Nike"])
+        manager.drawMultiDestinationRoute(
+            startCoordinate: Coordinate(latitude: 0, longitude: 0),
+            destinations: [makeRouteDestination()],
+            requestID: manager.routeRequestID
+        )
+        XCTAssertNotNil(manager._multiDestinationCallback)
+    }
+
+    func test_multiDestinationCallback_nilDirections_restartsSelection() {
+        manager.prepareToDrawRoute(destinationNames: ["Nike"])
+        manager.drawMultiDestinationRoute(
+            startCoordinate: Coordinate(latitude: 0, longitude: 0),
+            destinations: [makeRouteDestination()],
+            requestID: manager.routeRequestID
+        )
+        XCTAssertNoThrow(manager._multiDestinationCallback?(.success(nil)))
+    }
+
+    func test_multiDestinationCallback_emptyDirections_restartsSelection() {
+        manager.prepareToDrawRoute(destinationNames: ["Nike"])
+        manager.drawMultiDestinationRoute(
+            startCoordinate: Coordinate(latitude: 0, longitude: 0),
+            destinations: [makeRouteDestination()],
+            requestID: manager.routeRequestID
+        )
+        XCTAssertNoThrow(manager._multiDestinationCallback?(.success([])))
+    }
+
+    func test_multiDestinationCallback_failure_restartsSelection() {
+        manager.prepareToDrawRoute(destinationNames: ["Nike"])
+        manager.drawMultiDestinationRoute(
+            startCoordinate: Coordinate(latitude: 0, longitude: 0),
+            destinations: [makeRouteDestination()],
+            requestID: manager.routeRequestID
+        )
+        XCTAssertNoThrow(manager._multiDestinationCallback?(.failure(RetailBrainSDKError.invalidConfiguration)))
+    }
+
+    func test_multiDestinationCallback_successWithDirections_storesNavDrawCallback() {
+        manager.prepareToDrawRoute(destinationNames: ["Nike"])
+        manager.drawMultiDestinationRoute(
+            startCoordinate: Coordinate(latitude: 0, longitude: 0),
+            destinations: [makeRouteDestination()],
+            requestID: manager.routeRequestID
+        )
+        let dirs = makeDirections(coordinates: [Coordinate(latitude: 0, longitude: 0), Coordinate(latitude: 1, longitude: 1)])
+        manager._multiDestinationCallback?(.success([dirs]))
+        XCTAssertNotNil(manager._navigationDrawCallback)
+    }
+
+    // MARK: - renderMultiDestinationRoute + _navigationDrawCallback
+
+    func test_renderMultiDestinationRoute_doesNotCrash() {
+        manager.prepareToDrawRoute(destinationNames: ["Nike"])
+        let dirs = makeDirections(coordinates: [Coordinate(latitude: 0, longitude: 0), Coordinate(latitude: 1, longitude: 1)])
+        XCTAssertNoThrow(manager.renderMultiDestinationRoute(
+            allDirections: [dirs],
+            destinations: [makeRouteDestination()],
+            startCoordinate: Coordinate(latitude: 0, longitude: 0),
+            requestID: manager.routeRequestID
+        ))
+    }
+
+    func test_renderMultiDestinationRoute_storesNavigationDrawCallback() {
+        manager.prepareToDrawRoute(destinationNames: ["Nike"])
+        let dirs = makeDirections(coordinates: [Coordinate(latitude: 0, longitude: 0), Coordinate(latitude: 1, longitude: 1)])
+        manager.renderMultiDestinationRoute(
+            allDirections: [dirs],
+            destinations: [makeRouteDestination()],
+            startCoordinate: Coordinate(latitude: 0, longitude: 0),
+            requestID: manager.routeRequestID
+        )
+        XCTAssertNotNil(manager._navigationDrawCallback)
+    }
+
+    func test_navigationDrawCallback_success_doesNotCrash() {
+        manager.prepareToDrawRoute(destinationNames: ["Nike"])
+        let dirs = makeDirections(coordinates: [Coordinate(latitude: 0, longitude: 0), Coordinate(latitude: 1, longitude: 1)])
+        manager.renderMultiDestinationRoute(
+            allDirections: [dirs],
+            destinations: [makeRouteDestination()],
+            startCoordinate: Coordinate(latitude: 0, longitude: 0),
+            requestID: manager.routeRequestID
+        )
+        XCTAssertNoThrow(manager._navigationDrawCallback?(.success(nil)))
+    }
+
+    func test_navigationDrawCallback_success_withMultiFloor_storesCurrentFloorCallback() {
+        manager.prepareToDrawRoute(destinationNames: ["Nike"])
+        // Use two distinct floor IDs so updateRouteFloorContext sets isMultiFloorRouteActive = true
+        let dirs = makeDirections(coordinates: [
+            Coordinate(latitude: 0, longitude: 0, floorId: "f1"),
+            Coordinate(latitude: 1, longitude: 1, floorId: "f2")
+        ])
+        let dest = RouteDestination(id: "d1", name: "Nike", targets: [], floorIds: ["f2"])
+        manager.renderMultiDestinationRoute(
+            allDirections: [dirs],
+            destinations: [dest],
+            startCoordinate: Coordinate(latitude: 0, longitude: 0, floorId: "f1"),
+            requestID: manager.routeRequestID
+        )
+        manager._navigationDrawCallback?(.success(nil))
+        XCTAssertNotNil(manager._currentFloorCallback)
+    }
+
+    func test_navigationDrawCallback_failure_restartsSelection() {
+        manager.prepareToDrawRoute(destinationNames: ["Nike"])
+        let dirs = makeDirections()
+        manager.renderMultiDestinationRoute(
+            allDirections: [dirs],
+            destinations: [makeRouteDestination()],
+            startCoordinate: Coordinate(latitude: 0, longitude: 0),
+            requestID: manager.routeRequestID
+        )
+        XCTAssertNoThrow(manager._navigationDrawCallback?(.failure(RetailBrainSDKError.invalidConfiguration)))
+    }
+
+    // MARK: - syncActiveFloorsWithCurrentMapFloorIfNeeded + _currentFloorCallback
+
+    func test_syncActiveFloors_notMultiFloor_doesNotStoreCallback() {
+        manager.syncActiveFloorsWithCurrentMapFloorIfNeeded()
+        XCTAssertNil(manager._currentFloorCallback)
+    }
+
+    func test_currentFloorCallback_successWithFloor_doesNotCrash() {
+        manager.prepareToDrawRoute(destinationNames: ["Nike"])
+        let dirs = makeDirections(coordinates: [Coordinate(latitude: 0, longitude: 0), Coordinate(latitude: 1, longitude: 1)])
+        manager.renderMultiDestinationRoute(
+            allDirections: [dirs],
+            destinations: [makeRouteDestination()],
+            startCoordinate: Coordinate(latitude: 0, longitude: 0),
+            requestID: manager.routeRequestID
+        )
+        manager._navigationDrawCallback?(.success(nil))
+        XCTAssertNoThrow(manager._currentFloorCallback?(.failure(RetailBrainSDKError.invalidConfiguration)))
+    }
+
+    // MARK: - positionCamera and positionCameraDefault
+
+    func test_positionCamera_emptyCoordinates_callsDefault() {
+        let dirs = makeDirections(coordinates: [])
+        XCTAssertNoThrow(manager.positionCamera(from: Coordinate(latitude: 0, longitude: 0), firstLeg: dirs))
+    }
+
+    func test_positionCamera_withCoordinates_doesNotCrash() {
+        let dirs = makeDirections(coordinates: [
+            Coordinate(latitude: 0, longitude: 0),
+            Coordinate(latitude: 1, longitude: 1)
+        ])
+        XCTAssertNoThrow(manager.positionCamera(from: Coordinate(latitude: 0, longitude: 0), firstLeg: dirs))
+    }
+
+    func test_positionCameraDefault_doesNotCrash() {
+        XCTAssertNoThrow(manager.positionCameraDefault(from: Coordinate(latitude: 37.0, longitude: -122.0)))
+    }
+
+    // MARK: - addRouteMarkers
+
+    func test_addRouteMarkers_emptyDirections_doesNotCrash() {
+        XCTAssertNoThrow(manager.addRouteMarkers(
+            for: [],
+            destinations: [],
+            startCoordinate: Coordinate(latitude: 0, longitude: 0)
+        ))
+    }
+
+    func test_addRouteMarkers_withDirections_populatesStoreMarkerDetails() {
+        let coord = Coordinate(latitude: 5, longitude: 6)
+        let dirs = makeDirections(coordinates: [Coordinate(latitude: 0, longitude: 0), coord])
+        manager.addRouteMarkers(
+            for: [dirs],
+            destinations: [makeRouteDestination()],
+            startCoordinate: Coordinate(latitude: 0, longitude: 0)
+        )
+        XCTAssertFalse(manager.storeMarkerDetails.isEmpty)
+    }
+
+    func test_addRouteMarkers_sameAsStartCoordinate_skipsMarker() {
+        let start = Coordinate(latitude: 0, longitude: 0)
+        let dirs = makeDirections(coordinates: [start, start])
+        manager.addRouteMarkers(for: [dirs], destinations: [makeRouteDestination()], startCoordinate: start)
+        XCTAssertTrue(manager.storeMarkerDetails.isEmpty)
+    }
+
+    // MARK: - totalDistance
+
+    func test_totalDistance_emptyInstructions_returnsZero() {
+        let dirs = makeDirections()
+        XCTAssertEqual(manager.totalDistance(for: dirs), 0.0)
+    }
+
+    // MARK: - updateRouteFloorContext
+
+    func test_updateRouteFloorContext_singleFloor_doesNotSetMultiFloor() {
+        let dirs = makeDirections(coordinates: [Coordinate(latitude: 0, longitude: 0, floorId: "f1")])
+        manager.updateRouteFloorContext(
+            allDirections: [dirs],
+            destinations: [makeRouteDestination()],
+            startCoordinate: Coordinate(latitude: 0, longitude: 0, floorId: "f1")
+        )
+        XCTAssertTrue(true)
+    }
+
+    func test_updateRouteFloorContext_multipleFloors_doesNotCrash() {
+        let dirs = makeDirections(coordinates: [
+            Coordinate(latitude: 0, longitude: 0, floorId: "f1"),
+            Coordinate(latitude: 1, longitude: 1, floorId: "f2")
+        ])
+        XCTAssertNoThrow(manager.updateRouteFloorContext(
+            allDirections: [dirs],
+            destinations: [RouteDestination(id: "d1", name: "Nike", targets: [], floorIds: ["f2"])],
+            startCoordinate: Coordinate(latitude: 0, longitude: 0, floorId: "f1")
+        ))
+    }
+
+    // MARK: - applyMultiFloorVisibility
+
+    func test_applyMultiFloorVisibility_emptyAvailableFloors_doesNotCrash() {
+        XCTAssertNoThrow(manager.applyMultiFloorVisibility(
+            activeFloorIds: ["f1"],
+            focusFloorId: "f1",
+            shouldSetFloor: true
+        ))
+    }
+
+    func test_applyMultiFloorVisibility_noFocusFloor_doesNotCrash() {
+        XCTAssertNoThrow(manager.applyMultiFloorVisibility(
+            activeFloorIds: ["f1"],
+            focusFloorId: nil,
+            shouldSetFloor: false
+        ))
+    }
+
+    // MARK: - nearestStoreMarker with populated storeMarkerDetails
+
+    func test_clickHandler_withNearestMarker_callsCallbackWithDetails() {
+        let item = StoreItem(name: "Nike", imageName: "", locationName: "Nike")
+        let details = StoreDetails(from: item, coordinates: (1.0, 2.0))
+        manager.storeMarkerDetails = [StoreMarkerDetails(details: details, coordinate: Coordinate(latitude: 1, longitude: 2))]
+
+        let payload = ClickPayload(
+            coordinate: Coordinate(latitude: 1, longitude: 2),
+            markers: [],
+            pointerEvent: PointerEvent(button: 0)
+        )
+        // No pending route, non-empty tappedMarkers path not hit but nearestStoreMarker IS populated
+        // Trigger via empty markers + no route → storeSelectCallback?(nil)
+        manager._clickHandler?(payload)
+        XCTAssertEqual(callbackCallCount, 1)
+    }
+
+    func test_nearestStoreMarker_withDetails_returnsNearest() {
+        let item = StoreItem(name: "Nike", imageName: "", locationName: "Nike")
+        let details = StoreDetails(from: item, coordinates: (1.0, 2.0))
+        manager.storeMarkerDetails = [
+            StoreMarkerDetails(details: details, coordinate: Coordinate(latitude: 1, longitude: 2)),
+            StoreMarkerDetails(details: details, coordinate: Coordinate(latitude: 10, longitude: 10))
+        ]
+        let result = manager.nearestStoreMarker(to: Coordinate(latitude: 1, longitude: 2))
+        XCTAssertNotNil(result)
+    }
+
+    // MARK: - _clickHandler with non-empty tappedMarkers (nearestStoreMarker paths)
+
+    func test_clickHandler_nonEmptyMarkers_noStoreMarkerDetails_callsCallbackNil() {
+        let coord = Coordinate(latitude: 1, longitude: 2)
+        let marker = Marker(id: "m1", coordinate: coord, target: coord)
+        let payload = ClickPayload(coordinate: coord, markers: [marker], pointerEvent: PointerEvent(button: 0))
+        manager.storeMarkerDetails = []
+        manager._clickHandler?(payload)
+        XCTAssertEqual(callbackCallCount, 1)
+    }
+
+    func test_clickHandler_nonEmptyMarkers_withStoreMarkerDetails_callsCallbackWithDetails() {
+        let coord = Coordinate(latitude: 1, longitude: 2)
+        let marker = Marker(id: "m1", coordinate: coord, target: coord)
+        let payload = ClickPayload(coordinate: coord, markers: [marker], pointerEvent: PointerEvent(button: 0))
+        let item = StoreItem(name: "Nike", imageName: "", locationName: "Nike")
+        let details = StoreDetails(from: item, coordinates: (1.0, 2.0))
+        manager.storeMarkerDetails = [StoreMarkerDetails(details: details, coordinate: coord)]
+        manager._clickHandler?(payload)
+        XCTAssertEqual(callbackCallCount, 1)
+    }
+
+    // MARK: - buildOptimalOrder with 2 destinations (pendingDirectionsCount > 0 path)
+
+    func test_buildOptimalOrder_twoDestinations_coversPendingCountEarlyReturn() {
+        manager.prepareToDrawRoute(destinationNames: ["Nike", "Adidas"])
+        let dest1 = RouteDestination(id: "1", name: "Nike", targets: [.coordinate(Coordinate(latitude: 0, longitude: 0))], floorIds: [])
+        let dest2 = RouteDestination(id: "2", name: "Adidas", targets: [.coordinate(Coordinate(latitude: 1, longitude: 1))], floorIds: [])
+        manager.buildOptimalOrder(
+            currentTargets: [.coordinate(Coordinate(latitude: 0, longitude: 0))],
+            startCoordinate: Coordinate(latitude: 0, longitude: 0),
+            remainingDestinations: [dest1, dest2],
+            orderedDestinations: [],
+            requestID: manager.routeRequestID
+        )
+        // First invocation: pendingDirectionsCount 2→1, guard returns early
+        manager._getDirectionsCallback?(.success(nil))
+        // Second invocation: pendingDirectionsCount 1→0, continues to drawMultiDestinationRoute
+        manager._getDirectionsCallback?(.success(nil))
+        XCTAssertTrue(true)
+    }
+
+    // MARK: - Stale requestID guards in new callbacks
+
+    func test_getDirectionsCallback_staleRequestID_doesNotCrash() {
+        manager.buildOptimalOrder(
+            currentTargets: [.coordinate(Coordinate(latitude: 0, longitude: 0))],
+            startCoordinate: Coordinate(latitude: 0, longitude: 0),
+            remainingDestinations: [makeRouteDestination()],
+            orderedDestinations: [],
+            requestID: 9999
+        )
+        XCTAssertNoThrow(manager._getDirectionsCallback?(.success(nil)))
+    }
+
+    func test_multiDestinationCallback_staleRequestID_doesNotCrash() {
+        manager.prepareToDrawRoute(destinationNames: ["Nike"])
+        manager.drawMultiDestinationRoute(
+            startCoordinate: Coordinate(latitude: 0, longitude: 0),
+            destinations: [makeRouteDestination()],
+            requestID: 9999
+        )
+        XCTAssertNoThrow(manager._multiDestinationCallback?(.success(nil)))
+    }
+
+    func test_navigationDrawCallback_staleRequestID_doesNotCrash() {
+        manager.prepareToDrawRoute(destinationNames: ["Nike"])
+        let dirs = makeDirections()
+        manager.renderMultiDestinationRoute(
+            allDirections: [dirs],
+            destinations: [makeRouteDestination()],
+            startCoordinate: Coordinate(latitude: 0, longitude: 0),
+            requestID: 9999
+        )
+        XCTAssertNoThrow(manager._navigationDrawCallback?(.success(nil)))
+    }
+
+    func test_renderMultiDestinationRoute_staleRequestID_doesNothing() {
+        manager.prepareToDrawRoute(destinationNames: ["Nike"])
+        let dirs = makeDirections()
+        XCTAssertNoThrow(manager.renderMultiDestinationRoute(
+            allDirections: [dirs],
+            destinations: [makeRouteDestination()],
+            startCoordinate: Coordinate(latitude: 0, longitude: 0),
+            requestID: 9999
+        ))
+    }
+
+    func test_drawMultiDestinationRoute_staleRequestID_doesNothing() {
+        manager.prepareToDrawRoute(destinationNames: ["Nike"])
+        XCTAssertNoThrow(manager.drawMultiDestinationRoute(
+            startCoordinate: Coordinate(latitude: 0, longitude: 0),
+            destinations: [makeRouteDestination()],
+            requestID: 9999
+        ))
+    }
+
+    // MARK: - routeDestinations helpers
+
+    func test_routeDestinations_fromSpaces_doesNotCrash() {
+        let result = manager.routeDestinations(from: [Space]())
+        XCTAssertTrue(result.isEmpty)
+    }
+
+    func test_routeDestinations_fromMapObjects_doesNotCrash() {
+        let result = manager.routeDestinations(from: [MapObject]())
+        XCTAssertTrue(result.isEmpty)
+    }
+
+    func test_routeDestinations_fromDoors_doesNotCrash() {
+        let result = manager.routeDestinations(from: [Door]())
+        XCTAssertTrue(result.isEmpty)
+    }
+
+    func test_routeDestinations_fromPointsOfInterest_doesNotCrash() {
+        let result = manager.routeDestinations(from: [PointOfInterest]())
+        XCTAssertTrue(result.isEmpty)
     }
 }

@@ -39,7 +39,7 @@ public class NavigationManager {
     
     private let mapView: MapView
     private var storeSelectCallback: StoreSelectCallback?
-    private var storeMarkerDetails: [StoreMarkerDetails] = []
+    var storeMarkerDetails: [StoreMarkerDetails] = []
     
     private var pendingDestinationNames: [String]? = nil
     private var awaitingUserStartLocation: Bool = false
@@ -499,10 +499,7 @@ public class NavigationManager {
         var pendingDirectionsCount = remainingDestinations.count
         
         for destination in remainingDestinations {
-            mapView.mapData.getDirections(
-                from: currentTargets,
-                to: destination.targets
-            ) { [weak self] result in
+            let directionsCb: (Result<Directions?, Error>) -> Void = { [weak self] result in
                 guard let self, requestID == self.routeRequestID else { return }
                 
                 if case .success(let directions?) = result {
@@ -531,9 +528,13 @@ public class NavigationManager {
                     requestID: requestID
                 )
             }
+            _getDirectionsCallback = directionsCb
+            mapView.mapData.getDirections(from: currentTargets, to: destination.targets, onResult: directionsCb)
         }
     }
-    
+
+    private(set) var _getDirectionsCallback: ((Result<Directions?, Error>) -> Void)?
+
     // MARK: - Multi-Destination Route Drawing
     
     func drawMultiDestinationRoute(
@@ -551,33 +552,32 @@ public class NavigationManager {
             destination.targets.map { MultiDestinationTarget.single($0) }
         }
         
-        mapView.mapData.getDirectionsMultiDestination(
-            from: .coordinate(startCoordinate),
-            to: multiDestinationTargets
-        ) { [weak self] result in
+        let multiDestCb: (Result<[Directions]?, Error>) -> Void = { [weak self] result in
             guard let self, requestID == self.routeRequestID else { return }
-            
             switch result {
             case .success(let allDirections):
                 guard let allDirections = allDirections, !allDirections.isEmpty else {
                     self.restartStartSelectionAfterInvalidRoute(reason: "No directions returned from multi-destination query")
                     return
                 }
-                
                 self.renderMultiDestinationRoute(
                     allDirections: allDirections,
                     destinations: destinations,
                     startCoordinate: startCoordinate,
                     requestID: requestID
                 )
-            case .failure(_):
+            case .failure:
                 self.restartStartSelectionAfterInvalidRoute(reason: "Multi-destination route failed")
             }
         }
+        _multiDestinationCallback = multiDestCb
+        mapView.mapData.getDirectionsMultiDestination(from: .coordinate(startCoordinate), to: multiDestinationTargets, onResult: multiDestCb)
     }
     
     // MARK: - Multi-Destination Route Rendering
-    
+
+    private(set) var _multiDestinationCallback: ((Result<[Directions]?, Error>) -> Void)?
+
     func renderMultiDestinationRoute(
         allDirections: [Directions],
         destinations: [RouteDestination],
@@ -625,9 +625,8 @@ public class NavigationManager {
             setMapToDeparture: true
         )
         
-        mapView.navigation.draw(directions: allDirections, options: navigationOptions) { [weak self] result in
+        let drawCb: (Result<Any?, Error>) -> Void = { [weak self] result in
             guard let self, requestID == self.routeRequestID else { return }
-            
             switch result {
             case .success:
                 self.syncActiveFloorsWithCurrentMapFloorIfNeeded()
@@ -635,7 +634,11 @@ public class NavigationManager {
                 self.restartStartSelectionAfterInvalidRoute(reason: "Failed to draw route")
             }
         }
+        _navigationDrawCallback = drawCb
+        mapView.navigation.draw(directions: allDirections, options: navigationOptions, onResult: drawCb)
     }
+
+    private(set) var _navigationDrawCallback: ((Result<Any?, Error>) -> Void)?
     
     // MARK: - Restarting start selection after an invalid route or error
     
@@ -814,7 +817,7 @@ public class NavigationManager {
     func syncActiveFloorsWithCurrentMapFloorIfNeeded() {
         guard isMultiFloorRouteActive, !currentActiveFloors.isEmpty else { return }
 
-        mapView.currentFloor { [weak self] result in
+        let floorCb: (Result<Floor?, Error>) -> Void = { [weak self] result in
             guard let self else { return }
             if case .success(let floor?) = result {
                 self.applyMultiFloorVisibility(
@@ -824,7 +827,11 @@ public class NavigationManager {
                 )
             }
         }
+        _currentFloorCallback = floorCb
+        mapView.currentFloor(onResult: floorCb)
     }
+
+    private(set) var _currentFloorCallback: ((Result<Floor?, Error>) -> Void)?
 
     func applyMultiFloorVisibility(
         activeFloorIds: Set<String>,

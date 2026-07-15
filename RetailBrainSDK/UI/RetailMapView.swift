@@ -51,6 +51,7 @@ struct MapViewRepresentable: UIViewRepresentable {
 public struct RetailMapView: View {
     @StateObject private var viewModel: RetailMapViewModel
     private let routingController: MapRoutingController
+    private(set) var _onMapLoadedForTesting: (() -> Void)?
 
     public init(
         routingController: MapRoutingController = MapRoutingController(),
@@ -60,13 +61,16 @@ public struct RetailMapView: View {
         isMultiFloorMode: Bool = false
     ) {
         self.routingController = routingController
+        let mapLoadedClosure: () -> Void = {
+            routingController.markMapReady()
+            onMapLoaded?()
+            onLaunch?()
+        }
         _viewModel = StateObject(
-            wrappedValue: RetailMapViewModel(onMapLoaded: {
-                routingController.markMapReady()
-                onMapLoaded?()
-                onLaunch?()
-            }, mapId: mapId, isMultiFloorMode: isMultiFloorMode)
+            wrappedValue: RetailMapViewModel(onMapLoaded: mapLoadedClosure,
+                                             mapId: mapId, isMultiFloorMode: isMultiFloorMode)
         )
+        _onMapLoadedForTesting = mapLoadedClosure
     }
 
     public var body: some View {

@@ -2,6 +2,8 @@
 //  RetailMapViewTests.swift
 //  RetailBrainSDKTests
 //
+//  Created by sowmya.prasanna on 15/07/26.
+//
 
 import XCTest
 import SwiftUI
@@ -280,6 +282,50 @@ final class RetailMapViewRenderTests: XCTestCase {
     func test_onMapLoadedClosure_withNilCallbacks_doesNotCrash() {
         let controller = MapRoutingController()
         XCTAssertNoThrow(RetailMapView(routingController: controller, onMapLoaded: nil, onLaunch: nil))
+    }
+
+    // MARK: - _onMapLoadedForTesting (covers closure #1 in implicit closure #1 in RetailMapView.init)
+
+    func test_onMapLoadedForTesting_callsMarkMapReady() {
+        let controller = MapRoutingController()
+        XCTAssertFalse(controller.isMapReady)
+        let view = RetailMapView(routingController: controller)
+        view._onMapLoadedForTesting?()
+        XCTAssertTrue(controller.isMapReady)
+    }
+
+    func test_onMapLoadedForTesting_callsOnMapLoadedCallback() {
+        var called = false
+        let view = RetailMapView(onMapLoaded: { called = true })
+        view._onMapLoadedForTesting?()
+        XCTAssertTrue(called)
+    }
+
+    func test_onMapLoadedForTesting_callsOnLaunchCallback() {
+        var launchCalled = false
+        let view = RetailMapView(onLaunch: { launchCalled = true })
+        view._onMapLoadedForTesting?()
+        XCTAssertTrue(launchCalled)
+    }
+
+    func test_onMapLoadedForTesting_callsBothCallbacks() {
+        var mapLoaded = false
+        var launched = false
+        let controller = MapRoutingController()
+        let view = RetailMapView(routingController: controller,
+                                  onMapLoaded: { mapLoaded = true },
+                                  onLaunch: { launched = true })
+        view._onMapLoadedForTesting?()
+        XCTAssertTrue(controller.isMapReady)
+        XCTAssertTrue(mapLoaded)
+        XCTAssertTrue(launched)
+    }
+
+    func test_onMapLoadedForTesting_withNilCallbacks_doesNotCrash() {
+        let controller = MapRoutingController()
+        let view = RetailMapView(routingController: controller, onMapLoaded: nil, onLaunch: nil)
+        XCTAssertNoThrow(view._onMapLoadedForTesting?())
+        XCTAssertTrue(controller.isMapReady)
     }
 
     // MARK: - appearance transitions
