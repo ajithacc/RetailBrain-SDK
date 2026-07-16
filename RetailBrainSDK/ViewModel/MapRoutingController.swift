@@ -12,7 +12,9 @@ import Combine
 /// Note: Routing is primarily handled through RetailMapViewModel directly
 public final class MapRoutingController: ObservableObject {
     @Published var isMapReady = false
+    @Published public private(set) var selectedStore: StoreDetails?
     private weak var viewModel: RetailMapViewModel?
+    private var cancellables = Set<AnyCancellable>()
     
     public init() {}
     
@@ -23,6 +25,18 @@ public final class MapRoutingController: ObservableObject {
 
     func attach(viewModel: RetailMapViewModel) {
         self.viewModel = viewModel
+        cancellables.removeAll()
+
+        viewModel.$selectedStore
+            .receive(on: DispatchQueue.main)
+            .sink { [weak self] storeDetails in
+                self?.selectedStore = storeDetails
+            }
+            .store(in: &cancellables)
+    }
+
+    public func selectedStorePublisher() -> AnyPublisher<StoreDetails?, Never> {
+        $selectedStore.eraseToAnyPublisher()
     }
     
     /// Route to specified store names

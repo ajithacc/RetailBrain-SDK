@@ -17,14 +17,23 @@ final class RetailMapViewModel: ObservableObject {
     @Published var selectedStore: StoreDetails?
 
     private let onMapLoaded: (() -> Void)?
+    private var customMapId: String?
+    private let isMultiFloorMode: Bool
+    private var isMapRendered = false
+    private var selectedProductForBlueDot: String?
 
-    init(onMapLoaded: (() -> Void)? = nil) {
+    init(onMapLoaded: (() -> Void)? = nil, mapId: String? = nil, isMultiFloorMode: Bool = false) {
         self.onMapLoaded = onMapLoaded
+        self.customMapId = mapId
+        self.isMultiFloorMode = isMultiFloorMode
     }
 
     private lazy var navigationManager = NavigationManager(mapView: mapView) { [weak self] storeDetails in
         DispatchQueue.main.async {
             self?.selectedStore = storeDetails
+            if let storeDetails {
+                RetailBrainManager.shared.delegate?.didTapProductPointer(storeDetails)
+            }
         }
     }
 
@@ -36,10 +45,12 @@ final class RetailMapViewModel: ObservableObject {
             return
         }
 
+        let mapIdToLoad = customMapId ?? config.mapId
+        
         let options = GetMapDataWithCredentialsOptions(
             key: config.apiKey,
             secret: config.apiSecret,
-            mapId: config.mapId
+            mapId: mapIdToLoad
         )
 
         mapView.getMapData(options: options) { [weak self] result in
@@ -47,10 +58,51 @@ final class RetailMapViewModel: ObservableObject {
 
             switch result {
             case .success:
-                self.mapView.show3dMap(options: Show3DMapOptions()) { renderResult in
+                let multiFloorOptions: MultiFloorViewOptions? = isMultiFloorMode
+                    ? MultiFloorViewOptions(
+                        enabled: true,
+                        floorGap: nil,
+                        floorGapMultiplier: nil,
+                        floorGapFallback: nil,
+                        updateCameraElevationOnFloorChange: true,
+                        footprintColor: nil,
+                        footprintOpacity: nil,
+                        footprintOutline: nil,
+                        spacesOpenToBelowEnabled: nil,
+                        spacesOpenToBelowVisualEffectEnabled: nil,
+                        spacesOpenToBelowVisualEffectDarkenAmount: nil,
+                        spacesOpenToBelowVisualEffectDarkenUseDepth: nil,
+                        spacesOpenToBelowVisualEffectDesaturateAmount: nil,
+                        spacesOpenToBelowVisualEffectDesaturateUseDepth: nil,
+                        spacesOpenToBelowVisualEffectWashOutAmount: nil,
+                        spacesOpenToBelowVisualEffectWashOutUseDepth: nil
+                    )
+                    : nil
+
+                let showOptions = Show3DMapOptions(
+                    bearing: nil,
+                    debug: nil,
+                    flipImagesToFaceCamera: nil,
+                    initialFloor: nil,
+                    injectStyles: nil,
+                    multiFloorView: multiFloorOptions,
+                    outdoorView: nil,
+                    pitch: nil,
+                    preloadFloors: nil,
+                    screenOffsets: nil,
+                    shadingAndOutlines: nil,
+                    style: nil,
+                    wallTopColor: nil,
+                    zoomLevel: nil
+                )
+
+                self.mapView.show3dMap(options: showOptions) { renderResult in
                     switch renderResult {
                     case .success:
                         print("Map Loaded Successfully")
+
+                        self.isMapRendered = true
+                        self.placeBlueDotIfReady()
                         RetailBrainManager.shared.delegate?.mapDidLoad()
                         self.onMapLoaded?()
                         self.isLoading = false
@@ -81,8 +133,17 @@ final class RetailMapViewModel: ObservableObject {
             return
         }
 
+        // Keep this static-product flow replaceable for future Vusion coordinates.
+        selectedProductForBlueDot = itemNames.first
+
         RetailBrainManager.shared.delegate?.routeCalculationStarted()
         navigationManager.prepareToDrawRoute(destinationNames: itemNames)
+        placeBlueDotIfReady()
+    }
+
+    private func placeBlueDotIfReady() {
+        guard isMapRendered, let productName = selectedProductForBlueDot else { return }
+        navigationManager.placeUserBlueDotAtStaticItem(named: productName)
     }
 
     deinit {

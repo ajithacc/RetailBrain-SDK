@@ -24,6 +24,9 @@ public protocol RetailBrainSDKDelegate: AnyObject {
 
     // Route Events
     func routeCalculationStarted()
+
+    // Marker Events
+    func didTapProductPointer(_ product: StoreDetails)
 }
 
 public extension RetailBrainSDKDelegate {
@@ -35,6 +38,7 @@ public extension RetailBrainSDKDelegate {
     func didSelectItem(_ item: StoreItem) {}
     func didDeselectItem(_ item: StoreItem) {}
     func routeCalculationStarted() {}
+    func didTapProductPointer(_ product: StoreDetails) {}
 }
 
 public enum RetailBrainSDKError: LocalizedError {

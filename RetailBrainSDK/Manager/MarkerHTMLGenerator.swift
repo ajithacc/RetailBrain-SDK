@@ -12,7 +12,7 @@ public class MarkerHTMLGenerator {
     public static func customDestinationMarkerHTML(
         imageSrc: String,
         destinationId: String,
-        color: String = "#d92d20"
+        color: String = "#000000"
     ) -> String {
         return """
         <div style="width:45px;height:57px;position:relative;">
