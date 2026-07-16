@@ -19,6 +19,8 @@ final class RetailMapViewModel: ObservableObject {
     private let onMapLoaded: (() -> Void)?
     private var customMapId: String?
     private let isMultiFloorMode: Bool
+    private var isMapRendered = false
+    private var selectedProductForBlueDot: String?
 
     init(onMapLoaded: (() -> Void)? = nil, mapId: String? = nil, isMultiFloorMode: Bool = false) {
         self.onMapLoaded = onMapLoaded
@@ -98,6 +100,9 @@ final class RetailMapViewModel: ObservableObject {
                     switch renderResult {
                     case .success:
                         print("Map Loaded Successfully")
+
+                        self.isMapRendered = true
+                        self.placeBlueDotIfReady()
                         RetailBrainManager.shared.delegate?.mapDidLoad()
                         self.onMapLoaded?()
                         self.isLoading = false
@@ -128,8 +133,17 @@ final class RetailMapViewModel: ObservableObject {
             return
         }
 
+        // Keep this static-product flow replaceable for future Vusion coordinates.
+        selectedProductForBlueDot = itemNames.first
+
         RetailBrainManager.shared.delegate?.routeCalculationStarted()
         navigationManager.prepareToDrawRoute(destinationNames: itemNames)
+        placeBlueDotIfReady()
+    }
+
+    private func placeBlueDotIfReady() {
+        guard isMapRendered, let productName = selectedProductForBlueDot else { return }
+        navigationManager.placeUserBlueDotAtStaticItem(named: productName)
     }
 
     deinit {
