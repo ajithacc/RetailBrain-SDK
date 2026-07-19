@@ -103,9 +103,14 @@ final class RetailMapViewModel: ObservableObject {
 
                         self.isMapRendered = true
                         self.placeBlueDotIfReady()
+                        
+                        // Start Vusion beaconing after map loads
+                        VusionIntegrationManager.shared.startAfterMapLoad()
+                    
                         RetailBrainManager.shared.delegate?.mapDidLoad()
                         self.onMapLoaded?()
                         self.isLoading = false
+                        
                     case .failure(let error):
                         print("Map rendering failed")
                         print(error)

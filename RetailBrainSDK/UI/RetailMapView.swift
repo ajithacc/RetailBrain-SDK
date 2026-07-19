@@ -50,6 +50,7 @@ struct MapViewRepresentable: UIViewRepresentable {
 
 public struct RetailMapView: View {
     @StateObject private var viewModel: RetailMapViewModel
+    @StateObject private var toastManager = VusionToastManager.shared
     private let routingController: MapRoutingController
 
     public init(
@@ -86,6 +87,25 @@ public struct RetailMapView: View {
                 }
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
                 .background(Color.black.opacity(0.25))
+            }
+            
+            // Vusion Toast Display
+            if toastManager.isShowingToast, let toastContent = toastManager.toastContent {
+                VStack {
+                    if case .locationUpdate(let update) = toastContent {
+                        // Log the location data being shown
+                        let _ = print("🎯 Toast Displaying - Aisle: '\(update.aisleName)' | Modular: '\(update.modularName)'")
+                    }
+                    VusionToastView(
+                        content: toastContent,
+                        onDismiss: {
+                            toastManager.dismissToast()
+                        }
+                    )
+                    Spacer()
+                }
+                .frame(maxWidth: .infinity)
+                .transition(.move(edge: .top).combined(with: .opacity))
             }
         }
         .onAppear {

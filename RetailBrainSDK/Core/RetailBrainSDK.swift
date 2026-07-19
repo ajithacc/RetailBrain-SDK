@@ -27,6 +27,10 @@ public protocol RetailBrainSDKDelegate: AnyObject {
 
     // Marker Events
     func didTapProductPointer(_ product: StoreDetails)
+    
+    // Vusion Events
+    func vusionDidUpdateLocation(_ update: VusionLocationUpdate)
+    func vusionDidFailToInitialize(_ error: Error)
 }
 
 public extension RetailBrainSDKDelegate {
@@ -39,6 +43,8 @@ public extension RetailBrainSDKDelegate {
     func didDeselectItem(_ item: StoreItem) {}
     func routeCalculationStarted() {}
     func didTapProductPointer(_ product: StoreDetails) {}
+    func vusionDidUpdateLocation(_ update: VusionLocationUpdate) {}
+    func vusionDidFailToInitialize(_ error: Error) {}
 }
 
 public enum RetailBrainSDKError: LocalizedError {

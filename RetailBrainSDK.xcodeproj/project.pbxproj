@@ -21,10 +21,36 @@
 		};
 /* End PBXContainerItemProxy section */
 
+/* Begin PBXCopyFilesBuildPhase section */
+		2C2340A73008EA930071055F /* Embed Frameworks */ = {
+			isa = PBXCopyFilesBuildPhase;
+			buildActionMask = 2147483647;
+			dstPath = "";
+			dstSubfolderSpec = 10;
+			files = (
+			);
+			name = "Embed Frameworks";
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+/* End PBXCopyFilesBuildPhase section */
+
 /* Begin PBXFileReference section */
 		2C5E0A002FFE575F007BEB81 /* RetailBrainSDKTests.xctest */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = RetailBrainSDKTests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
 		2CACF31A2FE9421100E7A647 /* RetailBrainSDK.framework */ = {isa = PBXFileReference; explicitFileType = wrapper.framework; includeInIndex = 0; path = RetailBrainSDK.framework; sourceTree = BUILT_PRODUCTS_DIR; };
 /* End PBXFileReference section */
+
+/* Begin PBXFileSystemSynchronizedGroupBuildPhaseMembershipExceptionSet section */
+		2C2340A83008EA940071055F /* Exceptions for "RetailBrainSDK" folder in "Embed Frameworks" phase from "RetailBrainSDK" target */ = {
+			isa = PBXFileSystemSynchronizedGroupBuildPhaseMembershipExceptionSet;
+			attributesByRelativePath = {
+				"VusionSDK 2.xcframework" = (RemoveHeadersOnCopy, );
+			};
+			buildPhase = 2C2340A73008EA930071055F /* Embed Frameworks */;
+			membershipExceptions = (
+				"VusionSDK 2.xcframework",
+			);
+		};
+/* End PBXFileSystemSynchronizedGroupBuildPhaseMembershipExceptionSet section */
 
 /* Begin PBXFileSystemSynchronizedRootGroup section */
 		2C5E0A012FFE575F007BEB81 /* RetailBrainSDKTests */ = {
@@ -34,6 +60,9 @@
 		};
 		2CACF31C2FE9421100E7A647 /* RetailBrainSDK */ = {
 			isa = PBXFileSystemSynchronizedRootGroup;
+			exceptions = (
+				2C2340A83008EA940071055F /* Exceptions for "RetailBrainSDK" folder in "Embed Frameworks" phase from "RetailBrainSDK" target */,
+			);
 			path = RetailBrainSDK;
 			sourceTree = "<group>";
 		};
@@ -121,6 +150,7 @@
 				2CACF3162FE9421100E7A647 /* Sources */,
 				2CACF3172FE9421100E7A647 /* Frameworks */,
 				2CACF3182FE9421100E7A647 /* Resources */,
+				2C2340A73008EA930071055F /* Embed Frameworks */,
 			);
 			buildRules = (
 			);
@@ -420,14 +450,15 @@
 				SDKROOT = auto;
 				SKIP_INSTALL = YES;
 				STRING_CATALOG_GENERATE_SYMBOLS = YES;
-				SUPPORTED_PLATFORMS = "iphoneos iphonesimulator macosx xros xrsimulator";
+				SUPPORTED_PLATFORMS = "iphoneos iphonesimulator";
+				SUPPORTS_MACCATALYST = NO;
 				SWIFT_APPROACHABLE_CONCURRENCY = YES;
 				SWIFT_EMIT_LOC_STRINGS = YES;
 				SWIFT_INSTALL_MODULE = YES;
 				SWIFT_INSTALL_OBJC_HEADER = NO;
 				SWIFT_UPCOMING_FEATURE_MEMBER_IMPORT_VISIBILITY = YES;
 				SWIFT_VERSION = 5.0;
-				TARGETED_DEVICE_FAMILY = "1,2,7";
+				TARGETED_DEVICE_FAMILY = "1,2";
 				XROS_DEPLOYMENT_TARGET = 26.5;
 			};
 			name = Debug;
@@ -465,14 +496,15 @@
 				SDKROOT = auto;
 				SKIP_INSTALL = YES;
 				STRING_CATALOG_GENERATE_SYMBOLS = YES;
-				SUPPORTED_PLATFORMS = "iphoneos iphonesimulator macosx xros xrsimulator";
+				SUPPORTED_PLATFORMS = "iphoneos iphonesimulator";
+				SUPPORTS_MACCATALYST = NO;
 				SWIFT_APPROACHABLE_CONCURRENCY = YES;
 				SWIFT_EMIT_LOC_STRINGS = YES;
 				SWIFT_INSTALL_MODULE = YES;
 				SWIFT_INSTALL_OBJC_HEADER = NO;
 				SWIFT_UPCOMING_FEATURE_MEMBER_IMPORT_VISIBILITY = YES;
 				SWIFT_VERSION = 5.0;
-				TARGETED_DEVICE_FAMILY = "1,2,7";
+				TARGETED_DEVICE_FAMILY = "1,2";
 				XROS_DEPLOYMENT_TARGET = 26.5;
 			};
 			name = Release;
